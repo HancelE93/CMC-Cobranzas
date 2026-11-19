@@ -1,137 +1,322 @@
+ <div align="center">
+
 # CMC COBRANZAS
 
-### Sistema Integral de Gestión de Cartera, Conciliación Bancaria y Facturación
+### ENTERPRISE FINANCIAL MANAGEMENT PLATFORM
 
-\<p align="center">   \*\*Clear Minds Consultores\*\* \</p>
+**Sistema Integral de Gestión de Cartera, Conciliación Bancaria y Facturación**
 
-\<p align="center">   Plataforma empresarial para la automatización de procesos financieros, gestión de cartera académica, conciliación bancaria y trazabilidad documental. \</p>
+Desarrollado para **Clear Minds Consultores**
 
-\<p align="center">   \<img src="[https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white](https://img.shields.io/badge/React-19-61DAFB?logo=react\&logoColor=white)" alt="React 19" />   \<img src="[https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs\&logoColor=white)" alt="NestJS 11" />   \<img src="[https://img.shields.io/badge/TypeScript-Strict-3178C6?logo=typescript&logoColor=white](https://img.shields.io/badge/TypeScript-Strict-3178C6?logo=typescript\&logoColor=white)" alt="TypeScript" />   \<img src="[https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql\&logoColor=white)" alt="PostgreSQL" />   \<img src="[https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&logoColor=white](https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma\&logoColor=white)" alt="Prisma ORM" />   \<img src="[https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker\&logoColor=white)" alt="Docker" /> \</p>
+<br/>
+
+<img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" />
+<img src="https://img.shields.io/badge/NestJS-11-E0234E?style=for-the-badge&logo=nestjs&logoColor=white" />
+<img src="https://img.shields.io/badge/TypeScript-Strict-3178C6?style=for-the-badge&logo=typescript&logoColor=white" />
+<img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" />
+
+<img src="https://img.shields.io/badge/Prisma-7-2D3748?style=for-the-badge&logo=prisma&logoColor=white" />
+<img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
+<img src="https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" />
+
+<br/><br/>
+
+**Gestión financiera · Automatización · Conciliación · Auditoría**
+
+</div>
 
 ---
 
-## Índice
+## 01. Descripción del proyecto
 
-- [Descripción del proyecto](#-descripción-del-proyecto)
-- [Objetivos del sistema](#-objetivos-del-sistema)
-- [Arquitectura](#-arquitectura)
-- [Stack tecnológico](#-stack-tecnológico)
-- [Módulos funcionales](#-módulos-funcionales)
-- [Requisitos](#-requisitos-del-entorno)
-- [Instalación](#-instalación-y-ejecución)
-- [Seguridad y auditoría](#-seguridad-y-auditoría)
-- [Estándares de desarrollo](#-estándares-de-desarrollo)
-- [Identidad visual](#-identidad-visual)
+**CMC Cobranzas** es una plataforma empresarial diseñada para centralizar y optimizar la gestión financiera y administrativa de cuentas por cobrar correspondientes a programas de formación académica.
+
+La solución integra procesos de cartera, compromisos de pago, conciliación bancaria, control documental, facturación y auditoría, mediante una arquitectura desacoplada y tecnologías modernas.
+
+Su objetivo es mejorar el control financiero, facilitar el seguimiento de obligaciones y proporcionar trazabilidad sobre las operaciones realizadas dentro de la organización.
+
+<br/>
+
+## 02. Objetivos estratégicos
+
+<table>
+<tr>
+<td width="50%">
+
+### Gestión financiera
+- Centralización de cartera académica.
+- Control de cuentas por cobrar.
+- Seguimiento de compromisos.
+- Gestión de vencimientos y mora.
+
+</td>
+<td width="50%">
+
+### Automatización
+- Conciliación bancaria.
+- Proyección de ingresos.
+- Control documental.
+- Automatización de procesos operativos.
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### Seguridad
+- Control de acceso RBAC.
+- Permisos granulares.
+- Protección de información.
+- Autenticación segura.
+
+</td>
+<td width="50%">
+
+### Trazabilidad
+- Registro de operaciones.
+- Historial de modificaciones.
+- Control de anulaciones.
+- Bitácora de auditoría.
+
+</td>
+</tr>
+</table>
 
 ---
 
-## 📌 Descripción del proyecto
+## 03. Arquitectura del sistema
 
-**CMC Cobranzas** es una plataforma empresarial desarrollada para **Clear Minds Consultores**, enfocada en centralizar y optimizar la administración de cuentas por cobrar de programas de formación académica.
-
-El sistema integra procesos financieros y administrativos mediante una arquitectura desacoplada, permitiendo gestionar información de clientes, compromisos de pago, movimientos bancarios, documentación tributaria y auditoría de operaciones.
-
-Su propósito es proporcionar información financiera organizada, mejorar el seguimiento de cartera y facilitar la conciliación de transacciones mediante procesos automatizados y trazables.
-
-## 🎯 Objetivos del sistema
-
-- Centralizar la información financiera de alumnos y clientes.
-- Automatizar el seguimiento de cuentas por cobrar.
-- Controlar compromisos de pago y vencimientos.
-- Proyectar ingresos y comparar valores esperados frente a los ejecutados.
-- Facilitar la conciliación de transferencias bancarias.
-- Gestionar comprobantes de pago y documentación tributaria.
-- Mantener trazabilidad de las operaciones y cambios del sistema.
-- Administrar accesos mediante roles y permisos granulares.
-
-## 🏗️ Arquitectura
-
-El proyecto utiliza una arquitectura desacoplada, separando la aplicación frontend de la API backend.
+La solución utiliza una arquitectura desacoplada que separa la interfaz de usuario, la lógica de negocio y la persistencia de datos.
 
 ```text
 CMC-Cobranzas/
 │
 ├── CMC-Cobranzas/
+│   ├── src/
+│   ├── public/
+│   ├── package.json
 │   └── Frontend SPA
 │
 ├── CMC-Cobranzas-Backend/
+│   ├── src/
+│   ├── prisma/
+│   ├── package.json
 │   └── Backend API REST
 │
 └── README.md
 ```
 
-### Frontend
+### Frontend — Aplicación web
 
-Aplicación web de una sola página (SPA), encargada de la interfaz de usuario, navegación, visualización de información y comunicación con los servicios backend.
+Interfaz SPA desarrollada con React y TypeScript, responsable de la experiencia de usuario, navegación, visualización de información y comunicación con la API.
 
-### Backend
+### Backend — API REST
 
-API REST desarrollada con NestJS, organizada bajo principios de arquitectura hexagonal, separación de responsabilidades y acceso a datos mediante Prisma ORM.
+Servicio desarrollado con NestJS, estructurado bajo principios de arquitectura hexagonal, separación de responsabilidades y organización por dominios.
 
-### Base de datos
+### Persistencia — Base de datos
 
-PostgreSQL como motor relacional para la persistencia de información financiera, administrativa y documental.
+PostgreSQL como motor relacional, con Prisma ORM para la gestión de modelos, consultas y migraciones.
 
-## 💻 Stack tecnológico
+---
 
-| Capa                 | Tecnologías                       |
-| -------------------- | --------------------------------- |
-| Frontend             | React 19, TypeScript, Vite        |
-| Estilos              | Tailwind CSS v4                   |
-| Iconografía          | Lucide Icons                      |
-| Backend              | NestJS 11, TypeScript             |
-| Arquitectura         | Hexagonal / Puertos y Adaptadores |
-| ORM                  | Prisma ORM 7                      |
-| Base de datos        | PostgreSQL 16                     |
-| Infraestructura      | Docker Compose                    |
-| Autenticación        | JWT, cookies httpOnly             |
-| Seguridad            | bcrypt, class-validator           |
-| Control de versiones | Git y GitHub                      |
+## 04. Stack tecnológico
 
-## 🧩 Módulos funcionales
+| Componente | Tecnología |
+|:---|:---|
+| Interfaz | React 19 |
+| Lenguaje frontend | TypeScript |
+| Herramienta de desarrollo | Vite |
+| Estilos | Tailwind CSS v4 |
+| Iconografía | Lucide Icons |
+| API | NestJS 11 |
+| Arquitectura | Hexagonal |
+| ORM | Prisma ORM 7 |
+| Base de datos | PostgreSQL 16 |
+| Contenedores | Docker Compose |
+| Autenticación | JWT |
+| Sesiones | Cookies httpOnly |
+| Contraseñas | bcrypt |
+| Validaciones | class-validator |
+| Versionamiento | Git / GitHub |
 
-| Módulo                | Descripción                                                                  |
-| --------------------- | ---------------------------------------------------------------------------- |
-| Dashboard             | Indicadores ejecutivos, KPIs financieros y pagos recientes.                  |
-| Clientes              | Directorio de alumnos, estados de cuenta e historial de pagos.               |
-| Catálogo de programas | Administración de programas, precios y matrículas.                           |
-| Deudas y compromisos  | Control de obligaciones, cronogramas y vencimientos.                         |
-| Flujo de efectivo     | Proyección de ingresos y comparación entre valores proyectados y ejecutados. |
-| Conciliación bancaria | Importación de extractos y conciliación automática o manual.                 |
-| Facturación           | Control documental de facturas y expedientes tributarios.                    |
-| Reportes              | Exportación de información financiera en formato CSV.                        |
-| Usuarios y permisos   | Administración de usuarios, roles y permisos.                                |
-| Auditoría             | Registro y consulta de eventos y modificaciones del sistema.                 |
+---
 
-## ⚙️ Requisitos del entorno
+## 05. Módulos funcionales
 
-Antes de iniciar el proyecto, asegúrate de tener instalado:
+<table>
+<thead>
+<tr>
+<th>Módulo</th>
+<th>Funcionalidad</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Dashboard</strong></td>
+<td>Indicadores ejecutivos, KPIs financieros, cartera y pagos recientes.</td>
+</tr>
+<tr>
+<td><strong>Clientes</strong></td>
+<td>Directorio de alumnos, estados de cuenta e historial financiero.</td>
+</tr>
+<tr>
+<td><strong>Catálogo de programas</strong></td>
+<td>Administración de programas académicos, precios y matrículas.</td>
+</tr>
+<tr>
+<td><strong>Deudas y compromisos</strong></td>
+<td>Control de obligaciones, cronogramas y vencimientos.</td>
+</tr>
+<tr>
+<td><strong>Flujo de efectivo</strong></td>
+<td>Proyección de ingresos y comparación entre valores esperados y ejecutados.</td>
+</tr>
+<tr>
+<td><strong>Conciliación bancaria</strong></td>
+<td>Importación de extractos y conciliación automática o manual.</td>
+</tr>
+<tr>
+<td><strong>Facturación</strong></td>
+<td>Control documental de facturas y expedientes tributarios.</td>
+</tr>
+<tr>
+<td><strong>Reportes</strong></td>
+<td>Exportación de información financiera y discrepancias en CSV.</td>
+</tr>
+<tr>
+<td><strong>Usuarios y permisos</strong></td>
+<td>Administración de usuarios, roles y permisos granulares.</td>
+</tr>
+<tr>
+<td><strong>Auditoría</strong></td>
+<td>Registro y consulta de eventos y modificaciones del sistema.</td>
+</tr>
+</tbody>
+</table>
 
-- Node.js 22 LTS o superior.
-- npm o pnpm.
-- Docker y Docker Compose.
-- Git.
-- PostgreSQL 16, si no se utiliza Docker para la base de datos.
+---
 
-## 🚀 Instalación y ejecución
+## 06. Conciliación bancaria
 
-### 1. Clonar el repositorio
+El sistema contempla procesos de conciliación de transferencias y movimientos financieros de entidades y plataformas utilizadas en Ecuador.
+
+**Entidades contempladas:**
+
+- Banco Pichincha.
+- Banco Guayaquil.
+- Banco del Pacífico.
+- Produbanco.
+- PayPhone.
+- PayPal.
+
+**Flujo de conciliación:**
+
+```text
+Comprobante de pago
+        │
+        ▼
+Registro de transacción
+        │
+        ▼
+Importación de extracto bancario
+        │
+        ▼
+Comparación de movimientos
+        │
+        ▼
+┌─────────────────────────┐
+│ Coincidencia encontrada │
+└─────────────────────────┘
+        │
+        ▼
+Validación de transacción
+        │
+        ▼
+Conciliación confirmada
+```
+
+El flujo contempla también la revisión manual de movimientos que no encuentren coincidencias automáticas.
+
+---
+
+## 07. Seguridad y auditoría
+
+La solución contempla controles de acceso y mecanismos de protección para las operaciones financieras.
+
+### Autenticación y autorización
+
+- Autenticación mediante JWT.
+- Cookies httpOnly.
+- Hash de contraseñas con bcrypt.
+- Control de acceso basado en roles (RBAC).
+- Permisos por módulo y acción.
+
+### Matriz de permisos
+
+| Permiso | Acción |
+|:---|:---|
+| Ver | Consultar información. |
+| Crear | Registrar nuevos elementos. |
+| Modificar | Actualizar registros. |
+| Eliminar | Ejecutar operaciones autorizadas. |
+| Aprobar | Autorizar operaciones específicas. |
+| Exportar | Descargar información y reportes. |
+
+### Auditoría — RF-11
+
+La bitácora contempla el registro de eventos relevantes:
+
+- Creación de registros.
+- Modificación de información.
+- Anulación de operaciones.
+- Cambios de acceso y permisos.
+- Trazabilidad de las acciones realizadas.
+
+El diseño contempla la conservación del historial de eventos y evita su eliminación mediante las operaciones habituales del sistema.
+
+---
+
+## 08. Requisitos del entorno
+
+Antes de ejecutar el proyecto, se requiere:
+
+| Herramienta | Requisito |
+|:---|:---|
+| Node.js | 22 LTS o superior |
+| npm / pnpm | Gestor de paquetes |
+| Docker | Instalado y configurado |
+| Docker Compose | Disponible |
+| Git | Control de versiones |
+| PostgreSQL | 16, mediante Docker o instalación local |
+
+---
+
+## 09. Instalación y ejecución
+
+### 01 — Clonar el repositorio
 
 ```bash
-git clone (Repositorio de gitHub)
+git clone https://github.com/Krakedev-Development/CMC-Cobranzas.git
 
 cd CMC-Cobranzas
 ```
 
-### 2. Configurar el backend
+### 02 — Configurar el backend
+
+Abrir una terminal:
 
 ```bash
 cd CMC-Cobranzas-Backend
+```
 
+Instalar dependencias:
+
+```bash
 npm install
 ```
 
-Configurar las variables de entorno:
+Configurar variables de entorno:
 
 ```bash
 cp .env.example .env
@@ -143,14 +328,14 @@ Iniciar PostgreSQL:
 docker compose up -d
 ```
 
-Generar el cliente Prisma y ejecutar las migraciones:
+Generar el cliente Prisma y ejecutar migraciones:
 
 ```bash
 npm run prisma:generate
 npm run prisma:migrate
 ```
 
-Iniciar el servidor backend:
+Iniciar el servidor:
 
 ```bash
 npm run start:dev
@@ -158,19 +343,15 @@ npm run start:dev
 
 **Servicios disponibles:**
 
-- API REST: `http://localhost:3000`
-- Swagger: `http://localhost:3000/api/docs`
-- Health Check: `http://localhost:3000/health`
+| Servicio | Dirección |
+|:---|:---|
+| API REST | http://localhost:3000 |
+| Swagger | http://localhost:3000/api/docs |
+| Health Check | http://localhost:3000/health |
 
-### 3. Configurar el frontend
+### 03 — Configurar el frontend
 
-Abrir una nueva terminal y regresar a la carpeta raíz:
-
-```bash
-cd CMC-Cobranzas
-```
-
-Entrar al frontend:
+Abrir una segunda terminal desde la raíz del repositorio:
 
 ```bash
 cd CMC-Cobranzas
@@ -188,60 +369,33 @@ Iniciar la aplicación:
 npm run dev
 ```
 
-**Aplicación web:** `http://localhost:5173`
+**Aplicación web:** http://localhost:5173
 
-> Nota: Configura las variables de entorno del frontend según los nombres definidos en su archivo de ejemplo y la URL de la API backend.
+> Configura las variables de entorno del frontend de acuerdo con el archivo de ejemplo del proyecto y la dirección de la API backend.
 
-## 🔐 Seguridad y auditoría
+---
 
-El sistema contempla mecanismos de seguridad orientados a proteger la información financiera y controlar las operaciones realizadas por los usuarios.
+## 10. Estándares de desarrollo
 
-### Autenticación y autorización
+El proyecto sigue criterios de calidad y mantenibilidad orientados al desarrollo de software empresarial.
 
-- Autenticación mediante JWT.
-- Cookies httpOnly.
-- Hash de contraseñas mediante bcrypt.
-- Control de acceso basado en roles (RBAC).
-- Permisos granulares por módulo y acción.
-
-### Matriz de permisos
-
-| Acción    | Descripción                                      |
-| --------- | ------------------------------------------------ |
-| Ver       | Consultar información.                           |
-| Crear     | Registrar nuevos elementos.                      |
-| Modificar | Actualizar información existente.                |
-| Eliminar  | Ejecutar operaciones de eliminación autorizadas. |
-| Aprobar   | Autorizar operaciones específicas.               |
-| Exportar  | Descargar reportes e información.                |
-
-### Bitácora de auditoría
-
-El requisito RF-11 contempla el registro de eventos relevantes, incluyendo:
-
-- Creación de registros.
-- Modificación de información.
-- Anulación de operaciones.
-- Cambios en los accesos y permisos.
-- Trazabilidad de las acciones realizadas.
-
-La bitácora está diseñada para conservar el historial de eventos sin permitir su eliminación desde las operaciones habituales del sistema.
-
-## 📐 Estándares de desarrollo
-
-El proyecto sigue criterios orientados a mantener un código organizado, escalable y mantenible.
-
-**Clean Code**
+### Clean Code
 
 - Archivos de máximo 150 líneas como referencia.
 - Separación de responsabilidades.
-- Componentes y servicios con funciones específicas.
 - Tipado estricto con TypeScript.
+- Componentes y servicios con responsabilidades específicas.
 - Evitar duplicación de lógica.
 
-**Git y control de versiones**
+### Conventional Commits
 
-Se utiliza Conventional Commits:
+Formato:
+
+```text
+<type>(<scope>): <short description>
+```
+
+Ejemplos:
 
 ```text
 feat(auth): implement user authentication
@@ -251,37 +405,45 @@ style(dashboard): improve responsive layout
 chore(deps): update project dependencies
 ```
 
-**Organización del trabajo**
+### Organización del repositorio
 
 - Ramas estructuradas por funcionalidad.
 - Commits descriptivos.
 - Separación entre frontend y backend.
 - Validación de datos en las capas correspondientes.
 
-## 🎨 Identidad visual
+---
 
-La interfaz utiliza una identidad visual corporativa inspirada en la marca Clear Minds.
+## 11. Identidad visual
 
-| Elemento           | Color     |
-| ------------------ | --------- |
+La interfaz está basada en una identidad corporativa inspirada en Clear Minds Consultores.
+
+| Identidad | Color |
+|:---|:---|
 | Azul institucional | `#2C3E50` |
-| Azul principal     | `#00A3E0` |
-| Azul oscuro        | `#1A252F` |
+| Azul principal | `#00A3E0` |
+| Azul oscuro | `#1A252F` |
 
-Características de diseño:
+**Lineamientos visuales:**
 
-- Interfaz corporativa y empresarial.
-- Diseño adaptable a diferentes dispositivos.
-- Modo claro y modo oscuro.
-- Tipografía tabular monoespaciada para cifras financieras.
+- Diseño empresarial y profesional.
+- Interfaz adaptable a diferentes dispositivos.
+- Soporte para modo claro y oscuro.
+- Cifras financieras con tipografía tabular monoespaciada.
 - Componentes visuales consistentes.
 
 ---
 
-\<p align="center">
-&#x20; \*\*CMC COBRANZAS\*\*
-&#x20; \<br />
-&#x20; Sistema Integral de Gestión Financiera
-&#x20; \<br />
-&#x20; \<sub>Desarrollado para Clear Minds Consultores\</sub>
-\</p>
+<div align="center">
+
+---
+
+### CMC COBRANZAS
+
+**FINANCIAL MANAGEMENT · BANK RECONCILIATION · AUDITABILITY**
+
+Desarrollado para **Clear Minds Consultores**
+
+<sub>Arquitectura desacoplada · React · NestJS · PostgreSQL</sub>
+
+</div>
