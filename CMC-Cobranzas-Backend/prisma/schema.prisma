@@ -1,0 +1,229 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  ACTIVO
+  INACTIVO
+}
+
+enum Role {
+  ADMIN
+  SUPERVISOR
+  COBRADOR
+  AUDITOR
+}
+
+model User {
+  id           String      @id @default(uuid())
+  username     String      @unique
+  email        String      @unique
+  passwordHash String      @map("password_hash")
+  nombre       String
+  cargo        String
+  rol          Role        @default(COBRADOR)
+  estado       UserStatus  @default(ACTIVO)
+  permisos     Json?       @map("permisos")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+enum ClientStatus {
+  ACTIVO
+  INACTIVO
+}
+
+model Client {
+  id        String       @id @default(uuid())
+  cedula    String       @unique
+  nombres   String
+  apellidos String
+  telefono  String
+  correo    String
+  estado    ClientStatus @default(ACTIVO)
+  notas     String?
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  debts     Debt[]
+  payments  Payment[]
+  invoices  Invoice[]
+
+  @@map("clients")
+}
+
+enum ProductStatus {
+  ACTIVO
+  INACTIVO
+}
+
+model Product {
+  id            String        @id @default(uuid())
+  nombre        String
+  descripcion   String
+  precioNominal Decimal       @map("precio_nominal") @db.Decimal(12, 2)
+  estado        ProductStatus @default(ACTIVO)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  debts         Debt[]
+
+  @@map("products")
+}
+
+enum DebtStatus {
+  PENDIENTE
+  PARCIAL
+  PAGADA
+  ANULADA
+}
+
+model Debt {
+  id                    String      @id @default(uuid())
+  clienteId             String      @map("cliente_id")
+  productoId            String      @map("producto_id")
+  fechaAdquisicion      DateTime    @map("fecha_adquisicion")
+  precioNominalAplicado Decimal     @map("precio_nominal_aplicado") @db.Decimal(12, 2)
+  precioAcordado        Decimal     @map("precio_acordado") @db.Decimal(12, 2)
+  saldoInicial          Decimal     @map("saldo_inicial") @db.Decimal(12, 2)
+  saldoActual           Decimal     @map("saldo_actual") @db.Decimal(12, 2)
+  metodoPago            String?     @map("metodo_pago")
+  plazoMeses            Int?        @map("plazo_meses")
+  diaCorte              Int?        @map("dia_corte")
+  cuotas                Json?       @map("cuotas")
+  observaciones         String?
+  estado                DebtStatus  @default(PENDIENTE)
+  createdAt             DateTime    @default(now()) @map("created_at")
+  updatedAt             DateTime    @updatedAt @map("updated_at")
+
+  cliente               Client      @relation(fields: [clienteId], references: [id])
+  producto              Product     @relation(fields: [productoId], references: [id])
+  payments              Payment[]
+  invoices              Invoice[]
+
+  @@map("debts")
+}
+
+enum PaymentMethod {
+  TRANSFERENCIA
+  EFECTIVO
+  TARJETA
+  DEPOSITO
+  OTRO
+}
+
+enum PaymentRegisterStatus {
+  REGISTRADO
+  PENDIENTE_REVISION
+  ANULADO
+}
+
+enum ReconciliationStatus {
+  PENDIENTE
+  CONCILIADO_AUTO
+  REVISION_MANUAL
+  CONCILIADO_MANUAL
+  NO_ENCONTRADO
+  CON_DIFERENCIAS
+}
+
+model Payment {
+  id                 String                @id @default(uuid())
+  deudaId            String                @map("deuda_id")
+  clienteId          String                @map("cliente_id")
+  monto              Decimal               @db.Decimal(12, 2)
+  fechaPago          DateTime              @map("fecha_pago")
+  metodo             PaymentMethod         @default(TRANSFERENCIA)
+  bancoOrigen        String?               @map("banco_origen")
+  numeroTransaccion  String?               @map("numero_transaccion")
+  referencia         String?
+  comprobanteUrl     String?               @map("comprobante_url")
+  estadoRegistro     PaymentRegisterStatus @default(REGISTRADO) @map("estado_registro")
+  estadoConciliacion ReconciliationStatus  @default(PENDIENTE) @map("estado_conciliacion")
+  observaciones      String?
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+
+  deuda              Debt                  @relation(fields: [deudaId], references: [id])
+  cliente            Client                @relation(fields: [clienteId], references: [id])
+  reconciliations    Reconciliation[]
+
+  @@map("payments")
+}
+
+model BankMovement {
+  id               String           @id @default(uuid())
+  fecha            DateTime
+  monto            Decimal          @db.Decimal(12, 2)
+  numeroTransaccion String          @map("numero_transaccion")
+  referencia       String?
+  ordenante        String?
+  banco            String
+  estado           String           @default("sin_asignar")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  reconciliations  Reconciliation[]
+
+  @@map("bank_movements")
+}
+
+model Reconciliation {
+  id                  String       @id @default(uuid())
+  pagoId              String       @map("pago_id")
+  movimientoBancarioId String      @map("movimiento_bancario_id")
+  tipo                String       @default("automatica")
+  estado              String       @default("conciliado")
+  reglaCoincidencia   String?      @map("regla_coincidencia")
+  observacion         String?
+  fechaConciliacion   DateTime     @default(now()) @map("fecha_conciliacion")
+  conciliadoPor       String?      @map("conciliado_por")
+  createdAt           DateTime     @default(now()) @map("created_at")
+
+  pago                Payment      @relation(fields: [pagoId], references: [id])
+  movimiento          BankMovement @relation(fields: [movimientoBancarioId], references: [id])
+
+  @@map("reconciliations")
+}
+
+model Invoice {
+  id               String   @id @default(uuid())
+  clienteId        String   @map("cliente_id")
+  deudaId          String?  @map("deuda_id")
+  numeroFactura    String   @unique @map("numero_factura")
+  fechaFactura     DateTime @map("fecha_factura")
+  monto            Decimal  @db.Decimal(12, 2)
+  estadoDocumental String   @default("pendiente_registrar") @map("estado_documental")
+  observaciones    String?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  cliente          Client   @relation(fields: [clienteId], references: [id])
+  deuda            Debt?    @relation(fields: [deudaId], references: [id])
+
+  @@map("invoices")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  fechaHora   DateTime @default(now()) @map("fecha_hora")
+  usuarioId   String?  @map("usuario_id")
+  modulo      String
+  accion      String
+  entidadTipo String   @map("entidad_tipo")
+  entidadId   String   @map("entidad_id")
+  resultado   String   @default("exitoso")
+  detalles    Json?
+  ipAddress   String?  @map("ip_address")
+
+  usuario     User?    @relation(fields: [usuarioId], references: [id])
+
+  @@map("audit_logs")
+}

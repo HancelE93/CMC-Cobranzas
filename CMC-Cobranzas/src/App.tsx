@@ -1,0 +1,208 @@
+import React, { useState, useEffect } from 'react';
+import { AppProvider, useApp } from './context/AppContext';
+import { ModuleName, Payment, Voucher } from './types';
+import { SidebarNav } from './components/layout/SidebarNav';
+import { TopHeader } from './components/layout/TopHeader';
+import { DashboardView } from './views/DashboardView';
+import { ClientsView } from './views/ClientsView';
+import { ProductsView } from './views/ProductsView';
+import { DebtsView } from './views/DebtsView';
+import { CashFlowView } from './views/CashFlowView';
+import { BankReconciliationView } from './views/BankReconciliationView';
+import { InvoicesView } from './views/InvoicesView';
+import { ReportsView } from './views/ReportsView';
+import { UsersPermissionsView } from './views/UsersPermissionsView';
+import { AuditView } from './views/AuditView';
+import { RestrictedAccessView } from './components/common/RestrictedAccessView';
+import { LoginView } from './views/LoginView';
+import { VoucherPreviewModal } from './components/modals/VoucherPreviewModal';
+
+const AppContent: React.FC = () => {
+  const { hasPermission, getVoucherById, clients, isNavPinned, isAuthenticated, isLoadingAuth } = useApp();
+
+  const [currentModule, setCurrentModule] = useState<ModuleName>('dashboard');
+  const [isNavExpanded, setIsNavExpanded] = useState<boolean>(false);
+
+  const [isDark, setIsDark] = useState<boolean>(() =>
+    document.documentElement.classList.contains('dark')
+  );
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark);
+    try {
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    } catch {
+      // almacenamiento no disponible: el tema solo dura la sesion
+    }
+  }, [isDark]);
+
+  // Cross-module voucher preview modal
+  const [activeVoucherPayment, setActiveVoucherPayment] = useState<Payment | null>(null);
+
+  // Cross-module preselection for Payments view
+  const [preselectedClientId, setPreselectedClientId] = useState<string | null>(null);
+  const [preselectedDebtId, setPreselectedDebtId] = useState<string | null>(null);
+
+  const handleNavigateToPaymentWithTarget = (debtId: string, clientId: string) => {
+    setPreselectedClientId(clientId);
+    setPreselectedDebtId(debtId);
+    setCurrentModule('deudas');
+  };
+
+  const handleNavigateToPaymentForClient = (clientId: string) => {
+    setPreselectedClientId(clientId);
+    setPreselectedDebtId(null);
+    setCurrentModule('deudas');
+  };
+
+  const handleOpenVoucherModal = (payment: Payment) => {
+    setActiveVoucherPayment(payment);
+  };
+
+  const activeVoucher = activeVoucherPayment
+    ? (activeVoucherPayment.comprobanteId ? getVoucherById(activeVoucherPayment.comprobanteId) : undefined) ||
+      (activeVoucherPayment.comprobanteUrl
+        ? ({
+            id: `vouch-${activeVoucherPayment.id}`,
+            tipo: 'comprobante_pago',
+            nombreArchivo: `Comprobante_${activeVoucherPayment.numeroTransaccion || 'pago'}.png`,
+            tipoArchivo: 'image/png',
+            fechaCarga: activeVoucherPayment.fechaPago,
+            entidadRelacionadaTipo: 'pago',
+            entidadRelacionadaId: activeVoucherPayment.id,
+            archivoUrl: activeVoucherPayment.comprobanteUrl,
+            archivoDemoUrl: activeVoucherPayment.comprobanteUrl,
+            estadoAnalisis: 'analizado',
+            createdBy: 'sistema',
+          } as Voucher)
+        : undefined)
+    : undefined;
+
+  const activeVoucherClient = activeVoucherPayment
+    ? clients.find((c) => c.id === activeVoucherPayment.clienteId)
+    : undefined;
+
+  // Determine whether current module is allowed
+  const hasViewPermission = hasPermission(currentModule, 'ver');
+
+  // Effective nav expanded state (pinned or hovered)
+  const effectiveExpanded = isNavPinned || isNavExpanded;
+
+  if (isLoadingAuth) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-slate-100">
+        <div className="w-10 h-10 border-4 border-sky-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-xs font-semibold tracking-wider uppercase text-slate-400">
+          Verificando sesión segura CMC Cobranzas...
+        </p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginView />;
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col relative overflow-x-hidden">
+      {/* 
+        LEFT-HAND AUTO-COLLAPSING NAVBAR:
+        Placed on the left border of the viewport as requested.
+      */}
+      <SidebarNav
+        currentModule={currentModule}
+        onSelectModule={(mod) => setCurrentModule(mod)}
+        isExpanded={isNavExpanded}
+        setIsExpanded={setIsNavExpanded}
+      />
+
+      {/* 
+        MAIN CONTENT VIEWPORT:
+        Adapts dynamically to the left navbar compact width (~72px = ml-18) vs expanded width (~288px = ml-72).
+      */}
+      <div
+        className={`flex-1 flex flex-col transition-[margin] duration-300 ease-in-out ${
+          effectiveExpanded ? 'md:ml-72' : 'md:ml-18'
+        }`}
+      >
+        {/* Contextual Top Header */}
+        <TopHeader
+          currentModule={currentModule}
+          onNavigateToModule={(mod) => setCurrentModule(mod)}
+          isExpanded={effectiveExpanded}
+          isDark={isDark}
+          onToggleTheme={() => setIsDark((d) => !d)}
+        />
+
+        {/* Dynamic View Body */}
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+          {!hasViewPermission ? (
+            <RestrictedAccessView
+              moduleName={currentModule}
+              onNavigateToDashboard={() => setCurrentModule('dashboard')}
+            />
+          ) : (
+            <>
+              {currentModule === 'dashboard' && (
+                <DashboardView
+                  onNavigate={(mod) => setCurrentModule(mod)}
+                  onViewVoucher={handleOpenVoucherModal}
+                />
+              )}
+
+              {currentModule === 'clientes' && (
+                <ClientsView
+                  onRegisterPaymentForClient={handleNavigateToPaymentForClient}
+                  onViewVoucher={handleOpenVoucherModal}
+                />
+              )}
+
+              {currentModule === 'productos' && <ProductsView />}
+
+              {(currentModule === 'deudas' || currentModule === 'pagos') && (
+                <DebtsView
+                  onRegisterPaymentForDebt={handleNavigateToPaymentWithTarget}
+                  onViewVoucher={handleOpenVoucherModal}
+                  preselectedClientId={preselectedClientId}
+                  preselectedDebtId={preselectedDebtId}
+                  initialTab={currentModule === 'pagos' ? 'pagos' : 'deudas'}
+                />
+              )}
+
+              {currentModule === 'flujo_efectivo' && (
+                <CashFlowView onRegisterPaymentForDebt={handleNavigateToPaymentWithTarget} />
+              )}
+
+              {currentModule === 'conciliacion' && <BankReconciliationView />}
+
+              {currentModule === 'facturas' && <InvoicesView />}
+
+              {currentModule === 'reportes' && <ReportsView />}
+
+              {currentModule === 'usuarios' && <UsersPermissionsView />}
+
+              {currentModule === 'auditoria' && <AuditView />}
+            </>
+          )}
+        </main>
+      </div>
+
+      {/* --- GLOBAL APPLICATION MODALS --- */}
+      {/* Voucher Document & Digital Receipt Preview Modal */}
+      <VoucherPreviewModal
+        isOpen={Boolean(activeVoucherPayment)}
+        onClose={() => setActiveVoucherPayment(null)}
+        voucher={activeVoucher}
+        payment={activeVoucherPayment || undefined}
+        client={activeVoucherClient}
+      />
+    </div>
+  );
+};
+
+export default function App() {
+  return (
+    <AppProvider>
+      <AppContent />
+    </AppProvider>
+  );
+}

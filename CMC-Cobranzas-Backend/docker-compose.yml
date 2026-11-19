@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: cmc-cobranzas-db
+    environment:
+      POSTGRES_DB: cmc_cobranzas_db
+      POSTGRES_USER: cmc_user
+      POSTGRES_PASSWORD: cmc_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - cmc_cobranzas_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cmc_user -d cmc_cobranzas_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  cmc_cobranzas_db_data:
+

@@ -1,0 +1,457 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  /* Custom styled native selects with sleek SVG chevron and modern states */
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='m19.5 8.25-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
+    background-position: right 0.75rem center;
+    background-repeat: no-repeat;
+    background-size: 1rem 1rem;
+    padding-right: 2.25rem !important;
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+  }
+
+  select:focus {
+    outline: none;
+    border-color: #00A3E0;
+    box-shadow: 0 0 0 3px rgba(0, 163, 224, 0.15);
+  }
+
+  select option {
+    background-color: #ffffff;
+    color: #1e293b;
+    padding: 8px 12px;
+  }
+}
+
+/* Custom scrollbars for clean dashboards */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ==========================================================================
+   TEMA OSCURO — OPCIÓN A: ESTILO CORPORATIVO CLEAR MINDS (#2C3E50)
+   - Tarjetas, modales, tablas y TopHeader en #2C3E50 (RGB: 44, 62, 80)
+   - Fondo general body en #1A252F (Azul noche profundo con relieve y contraste)
+   - Bordes y divisores en #34495E
+   - Textos principales en blanco puro (#FFFFFF) y plata (#BDC3C7)
+   ========================================================================== */
+.dark {
+  color-scheme: dark;
+
+  --color-slate-50: #223140;
+  --color-slate-100: #263748;
+  --color-slate-200: #34495E;
+  --color-slate-300: #4B6584;
+  --color-slate-400: #7F8C8D;
+  --color-slate-500: #95A5A6;
+  --color-slate-600: #BDC3C7;
+  --color-slate-700: #ECF0F1;
+
+  --color-sky-50: #082f49;
+  --color-sky-100: #0c4a6e;
+  --color-sky-200: #0369a1;
+  --color-emerald-50: #06251d;
+  --color-emerald-100: #0a3a2c;
+  --color-emerald-200: #115e45;
+  --color-rose-50: #2d0f1a;
+  --color-rose-100: #4a1526;
+  --color-rose-200: #6b1d36;
+  --color-red-50: #2d0f12;
+  --color-red-100: #4a1519;
+  --color-red-200: #6b1d24;
+  --color-amber-50: #2b1d07;
+  --color-amber-100: #43300a;
+  --color-amber-200: #6b4b0e;
+  --color-blue-50: #0c1d3a;
+  --color-blue-100: #12305e;
+  --color-blue-200: #1e4a8a;
+  --color-indigo-50: #0c1d3a;
+  --color-indigo-100: #12305e;
+  --color-indigo-200: #1e4a8a;
+  --color-fuchsia-50: #2d0f28;
+  --color-fuchsia-100: #4a1542;
+  --color-fuchsia-200: #6b1d60;
+  --color-teal-50: #042f2e;
+  --color-teal-100: #0f4d45;
+  --color-teal-200: #115e59;
+}
+
+.dark body {
+  background-color: #1A252F;
+  color: #ECF0F1;
+}
+
+.dark .bg-white,
+.dark .hover\:bg-white:hover,
+.dark .focus\:bg-white:focus {
+  background-color: #2C3E50;
+}
+
+.dark header {
+  background-color: #2C3E50 !important;
+  border-bottom-color: #34495E !important;
+}
+
+.dark .text-slate-800,
+.dark .hover\:text-slate-800:hover {
+  color: #ECF0F1;
+}
+
+.dark .text-slate-900,
+.dark .hover\:text-slate-900:hover,
+.dark .group:hover .group-hover\:text-slate-900 {
+  color: #FFFFFF;
+}
+
+.dark .text-slate-500 {
+  color: #95A5A6;
+}
+
+.dark .text-slate-600 {
+  color: #BDC3C7;
+}
+
+.dark .border-slate-100 {
+  border-color: #243342;
+}
+
+.dark .border-slate-200,
+.dark .hover\:border-slate-200:hover {
+  border-color: #34495E;
+}
+
+.dark .border-slate-300,
+.dark .hover\:border-slate-300:hover {
+  border-color: #3D566E;
+}
+
+.dark .border-white {
+  border-color: #2C3E50;
+}
+
+.dark .divide-slate-100 > * + * {
+  border-color: #243342;
+}
+
+.dark .divide-slate-200 > * + * {
+  border-color: #34495E;
+}
+
+.dark .shadow-2xl,
+.dark .shadow-xs,
+.dark .shadow-2xs {
+  --tw-shadow-color: rgb(0 0 0 / 0.5);
+}
+
+.dark select option {
+  background-color: #2C3E50;
+  color: #FFFFFF;
+}
+
+.dark select {
+  background-color: #2C3E50;
+  border-color: #34495E;
+  color: #FFFFFF;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2' stroke='%23BDC3C7'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='m19.5 8.25-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #34495E;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #415B76;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #7F8C8D;
+}
+
+.dark input,
+.dark textarea {
+  color-scheme: dark;
+}
+
+/* Sidebar en Modo Oscuro - Tono armónico con #2C3E50 */
+.dark .sidebar-aside {
+  background-color: #243342 !important;
+  border-right-color: #1A252F !important;
+}
+
+.dark .sidebar-header {
+  border-bottom-color: #1A252F !important;
+}
+
+.dark .sidebar-user-box {
+  background-color: #1A252F !important;
+  border-bottom-color: #1A252F !important;
+}
+
+.dark .sidebar-user-select {
+  background-color: #243342 !important;
+  border-color: #34495E !important;
+  color: #FFFFFF !important;
+}
+
+.dark .sidebar-user-select option {
+  background-color: #2C3E50 !important;
+  color: #FFFFFF !important;
+}
+
+.dark .sidebar-footer {
+  background-color: #243342 !important;
+  border-top-color: #1A252F !important;
+}
+
+.dark .sidebar-nav-active {
+  background-color: #00A3E0 !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 2px 8px rgba(0, 163, 224, 0.4) !important;
+}
+
+.dark .sidebar-nav-link {
+  color: #BDC3C7 !important;
+}
+.dark .sidebar-nav-link:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #FFFFFF !important;
+}
+
+/* Textos de color: se aclaran para mantener contraste sobre fondos oscuros */
+.dark .text-sky-600,.dark .hover\:text-sky-600:hover{color:#38bdf8}
+.dark .text-sky-700,.dark .hover\:text-sky-700:hover{color:#38bdf8}
+.dark .text-sky-800{color:#7dd3fc}
+.dark .text-sky-900{color:#bae6fd}
+.dark .text-sky-950{color:#e0f2fe}
+.dark .text-emerald-600,.dark .hover\:text-emerald-600:hover{color:#6ee7b7}
+.dark .text-emerald-700,.dark .hover\:text-emerald-700:hover{color:#6ee7b7}
+.dark .text-emerald-800{color:#a7f3d0}
+.dark .text-emerald-900{color:#d1fae5}
+.dark .text-emerald-950{color:#d1fae5}
+.dark .text-rose-600,.dark .hover\:text-rose-600:hover{color:#fda4af}
+.dark .text-rose-700,.dark .hover\:text-rose-700:hover{color:#fda4af}
+.dark .text-rose-800{color:#fecdd3}
+.dark .text-rose-900{color:#ffe4e6}
+.dark .text-rose-950{color:#ffe4e6}
+.dark .text-red-600,.dark .hover\:text-red-600:hover{color:#fca5a5}
+.dark .text-red-700,.dark .hover\:text-red-700:hover{color:#fca5a5}
+.dark .text-red-800{color:#fecaca}
+.dark .text-red-900{color:#fee2e2}
+.dark .text-red-950{color:#fee2e2}
+.dark .text-amber-600,.dark .hover\:text-amber-600:hover{color:#fcd34d}
+.dark .text-amber-700,.dark .hover\:text-amber-700:hover{color:#fcd34d}
+.dark .text-amber-800{color:#fde68a}
+.dark .text-amber-900{color:#fef3c7}
+.dark .text-amber-950{color:#fef3c7}
+.dark .text-blue-600,.dark .hover\:text-blue-600:hover{color:#93c5fd}
+.dark .text-blue-700,.dark .hover\:text-blue-700:hover{color:#93c5fd}
+.dark .text-blue-800{color:#bfdbfe}
+.dark .text-blue-900{color:#dbeafe}
+.dark .text-blue-950{color:#dbeafe}
+.dark .text-slate-400{color:#95A5A6}
+.dark .text-slate-300{color:#BDC3C7}
+.dark .text-indigo-600,.dark .hover\:text-indigo-600:hover{color:#93c5fd}
+.dark .text-indigo-700,.dark .hover\:text-indigo-700:hover{color:#93c5fd}
+.dark .text-indigo-800{color:#bfdbfe}
+.dark .text-indigo-900{color:#dbeafe}
+.dark .text-indigo-950{color:#dbeafe}
+.dark .text-fuchsia-600,.dark .hover\:text-fuchsia-600:hover{color:#f0abfc}
+.dark .text-fuchsia-700,.dark .hover\:text-fuchsia-700:hover{color:#f0abfc}
+.dark .text-fuchsia-800{color:#f5d0fe}
+.dark .text-fuchsia-900{color:#fae8ff}
+.dark .text-fuchsia-950{color:#fae8ff}
+.dark .text-teal-600,.dark .hover\:text-teal-600:hover{color:#5eead4}
+.dark .text-teal-700,.dark .hover\:text-teal-700:hover{color:#5eead4}
+.dark .text-teal-800{color:#99f6e4}
+.dark .text-teal-900{color:#ccfbf1}
+.dark .text-teal-950{color:#ccfbf1}
+
+/* ==========================================================================
+   BARRA LATERAL (SIDEBAR) — COLOR CLEAR MINDS #2C3E50 (RGB: 44, 62, 80) EN MODO CLARO
+   Se aplica única y exclusivamente en modo claro (html:not(.dark)).
+   El modo oscuro NO se toca.
+   ========================================================================== */
+html:not(.dark) .sidebar-aside {
+  background-color: #2C3E50 !important;
+  border-right-color: #1e2b37 !important;
+}
+
+html:not(.dark) .sidebar-header {
+  border-bottom-color: #243342 !important;
+}
+
+html:not(.dark) .sidebar-logo {
+  background-color: transparent !important;
+}
+
+html:not(.dark) .sidebar-title {
+  color: #ffffff !important;
+}
+
+html:not(.dark) .sidebar-subtitle {
+  color: #38bdf8 !important;
+}
+
+html:not(.dark) .sidebar-pin-btn-active {
+  background-color: #00A3E0 !important;
+  border-color: #00A3E0 !important;
+  color: #ffffff !important;
+}
+
+html:not(.dark) .sidebar-pin-btn-inactive {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: #94a3b8 !important;
+}
+html:not(.dark) .sidebar-pin-btn-inactive:hover {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  color: #ffffff !important;
+}
+
+html:not(.dark) .sidebar-user-box {
+  background-color: #243342 !important;
+  border-bottom-color: #1e2b37 !important;
+}
+
+html:not(.dark) .sidebar-user-label {
+  color: #94a3b8 !important;
+}
+
+html:not(.dark) .sidebar-user-role {
+  color: #38bdf8 !important;
+}
+
+html:not(.dark) .sidebar-user-select {
+  background-color: #1e2b37 !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  color: #ffffff !important;
+}
+
+html:not(.dark) .sidebar-user-select option {
+  background-color: #2C3E50 !important;
+  color: #ffffff !important;
+}
+
+html:not(.dark) .sidebar-user-avatar {
+  background-color: #00A3E0 !important;
+  color: #ffffff !important;
+}
+
+html:not(.dark) .sidebar-nav-active {
+  background-color: #00A3E0 !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(0, 163, 224, 0.35) !important;
+}
+
+html:not(.dark) .sidebar-nav-link {
+  color: #cbd5e1 !important;
+}
+html:not(.dark) .sidebar-nav-link:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+}
+
+html:not(.dark) .sidebar-nav-disabled {
+  color: rgba(148, 163, 184, 0.4) !important;
+}
+
+html:not(.dark) .sidebar-icon-link {
+  color: #94a3b8 !important;
+}
+html:not(.dark) .group:hover .sidebar-icon-link {
+  color: #ffffff !important;
+}
+
+html:not(.dark) .sidebar-icon-disabled {
+  color: rgba(148, 163, 184, 0.3) !important;
+}
+
+html:not(.dark) .sidebar-badge-compact {
+  background-color: #ff8c00 !important;
+  color: #ffffff !important;
+}
+
+html:not(.dark) .sidebar-badge {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+html:not(.dark) .sidebar-restricted {
+  background-color: rgba(255, 140, 0, 0.2) !important;
+  color: #fed7aa !important;
+  border-color: rgba(255, 140, 0, 0.35) !important;
+}
+
+html:not(.dark) .sidebar-footer {
+  background-color: #2C3E50 !important;
+  border-top-color: #243342 !important;
+}
+
+html:not(.dark) .sidebar-footer-btn-chris {
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: #cbd5e1 !important;
+}
+html:not(.dark) .sidebar-footer-btn-chris:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+html:not(.dark) .sidebar-footer-icon-chris {
+  color: #38bdf8 !important;
+}
+
+html:not(.dark) .sidebar-footer-btn-reset {
+  background-color: rgba(244, 63, 94, 0.15) !important;
+  border-color: rgba(251, 113, 133, 0.3) !important;
+  color: #fecdd3 !important;
+}
+html:not(.dark) .sidebar-footer-btn-reset:hover {
+  background-color: rgba(244, 63, 94, 0.25) !important;
+  color: #ffffff !important;
+}
+html:not(.dark) .sidebar-footer-icon-reset {
+  color: #fda4af !important;
+}
+
+html:not(.dark) .sidebar-brand-badge {
+  background-color: #1e2b37 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+html:not(.dark) .sidebar-brand-badge:hover {
+  border-color: rgba(0, 163, 224, 0.4) !important;
+}
+
+/* ==========================================================================
+   CABECERA SUPERIOR (TOP HEADER) — REGLA STALIN: LETRAS NEGRAS EN FONDO BLANCO
+   "Si el fondo es blanco, todas las letras y demás con color negro.
+   Las letras que ni sean de colores."
+   ========================================================================== */
+html:not(.dark) .top-header-title {
+  color: #0f172a !important; /* Negro neutro de alto contraste */
+}
+
+html:not(.dark) .top-header-breadcrumb {
+  color: #0f172a !important; /* Negro neutro, sin colorines */
+}

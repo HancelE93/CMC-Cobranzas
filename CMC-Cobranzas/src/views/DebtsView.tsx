@@ -1,0 +1,4006 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { useApp } from '../context/AppContext';
+import { Debt, Client, Product, Payment, ExtractedData, PaymentMethod } from '../types';
+import {
+  Receipt,
+  Plus,
+  Upload,
+  Search,
+  CheckCircle2,
+  Clock,
+  AlertTriangle,
+  FileSpreadsheet,
+  X,
+  CreditCard,
+  DollarSign,
+  UserCheck,
+  Edit2,
+  Eye,
+  History,
+  FileText,
+  Printer,
+  Download,
+  Sparkles,
+  ShieldAlert,
+  ChevronRight,
+  TrendingUp,
+  Ban,
+  ArrowRight,
+  Check,
+  Banknote,
+  ArrowLeftRight,
+  Calendar,
+  Bell,
+  AlertOctagon,
+  RefreshCw,
+  Landmark,
+} from 'lucide-react';
+import { CustomSelect } from '../components/common/CustomSelect';
+import { Pagination } from '../components/common/Pagination';
+import { DatePicker } from '../components/common/DatePicker';
+
+export type DebtStatusTab = 'todas' | 'al_dia' | 'vencidos' | 'en_comprobacion' | 'conciliados';
+
+interface DebtsViewProps {
+  onRegisterPaymentForDebt?: (debtId: string, clientId: string) => void;
+  onViewVoucher?: (payment: Payment) => void;
+  preselectedClientId?: string | null;
+  preselectedDebtId?: string | null;
+  initialTab?: 'deudas' | 'pagos';
+}
+
+export const DebtsView: React.FC<DebtsViewProps> = ({
+  onViewVoucher,
+  preselectedClientId,
+  preselectedDebtId,
+  initialTab = 'deudas',
+}) => {
+  const {
+    debts,
+    clients,
+    products,
+    payments,
+    addDebt,
+    addClient,
+    addProduct,
+    importDebtsBulk,
+    getDebtFinancials,
+    hasPermission,
+    registerPayment,
+    cancelPayment,
+    logAudit,
+    currentUser,
+    exportToCSV,
+    exportToPDF,
+  } = useApp();
+
+  const canExport = hasPermission('deudas', 'exportar');
+
+  const handleExportDebtsExcel = () => {
+    if (!canExport) return;
+    const headers = [
+      'ID Deuda',
+      'Alumno',
+      'Cédula',
+      'Programa Educativo',
+      'Fecha Adquisición',
+      'Fecha Compromiso',
+      'Días Mora',
+      'P. Nominal ($)',
+      'P. Acordado ($)',
+      'Pagado ($)',
+      'Saldo Pendiente ($)',
+      'Estado',
+    ];
+    const rows = filteredDebts.map((d) => {
+      const client = clients.find((c) => c.id === d.clienteId);
+      const product = products.find((p) => p.id === d.productoId);
+      const fin = getDebtFinancials(d.id);
+      return [
+        d.id,
+        client ? `${client.nombres} ${client.apellidos}` : d.clienteId,
+        client?.cedula || '-',
+        product?.nombre || d.productoId,
+        d.fechaAdquisicion,
+        d.fechaCompromisoPago || '-',
+        d.diasMora || 0,
+        d.precioNominalAplicado.toFixed(2),
+        d.precioAcordado.toFixed(2),
+        (fin?.validPaymentsTotal || 0).toFixed(2),
+        (fin?.saldoPendiente || 0).toFixed(2),
+        d.estado,
+      ];
+    });
+    exportToCSV('Cuentas_Por_Cobrar_Deudas', headers, rows);
+  };
+
+  const handleExportDebtsPDF = () => {
+    if (!canExport) return;
+    const headers = [
+      'Alumno',
+      'Cédula',
+      'Programa',
+      'Fecha Adq.',
+      'Compromiso',
+      'Mora',
+      'P. Acordado ($)',
+      'Pagado ($)',
+      'Saldo ($)',
+      'Estado',
+    ];
+    const rows = filteredDebts.map((d) => {
+      const client = clients.find((c) => c.id === d.clienteId);
+      const product = products.find((p) => p.id === d.productoId);
+      const fin = getDebtFinancials(d.id);
+      return [
+        client ? `${client.nombres} ${client.apellidos}` : d.clienteId,
+        client?.cedula || '-',
+        product?.nombre || d.productoId,
+        d.fechaAdquisicion,
+        d.fechaCompromisoPago || '-',
+        `${d.diasMora || 0} d`,
+        d.precioAcordado.toFixed(2),
+        (fin?.validPaymentsTotal || 0).toFixed(2),
+        (fin?.saldoPendiente || 0).toFixed(2),
+        d.estado,
+      ];
+    });
+    exportToPDF('Reporte de Cuentas por Cobrar (Deudas)', headers, rows, 'Listado oficial de cartera y saldos vigentes');
+  };
+
+  // Active Sub-Tab: "deudas" or "pagos"
+  const [activeTab, setActiveTab] = useState<'deudas' | 'pagos'>(initialTab);
+
+  // --- SUB-PESTAÑAS DE ESTADO DE DEUDAS ---
+  const [debtStatusTab, setDebtStatusTab] = useState<DebtStatusTab>('todas');
+
+  // --- TAB 1 (DEUDAS) FILTERS & PAGINATION ---
+  const [debtSearchQuery, setDebtSearchQuery] = useState('');
+  const [productFilter, setProductFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [debtMethodFilter, setDebtMethodFilter] = useState('all');
+  const [debtsCurrentPage, setDebtsCurrentPage] = useState(1);
+  const [debtsPageSize, setDebtsPageSize] = useState(15);
+
+  // --- TAB 2 (PAGOS) FILTERS & PAGINATION ---
+  const [paymentSearchQuery, setPaymentSearchQuery] = useState('');
+  const [reconciliationFilter, setReconciliationFilter] = useState('all');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('all');
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState('all');
+  const [paymentsCurrentPage, setPaymentsCurrentPage] = useState(1);
+  const [paymentsPageSize, setPaymentsPageSize] = useState(15);
+
+  // --- CREATE DEBT / NUEVA VENTA MODAL STATE ---
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [selectedClientId, setSelectedClientId] = useState(preselectedClientId || '');
+  const [clientSearchText, setClientSearchText] = useState('');
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [productSearchText, setProductSearchText] = useState('');
+  const [precioNominal, setPrecioNominal] = useState<number>(0);
+  const [precioAcordado, setPrecioAcordado] = useState<string>('');
+  const [saleFechaAdquisicion, setSaleFechaAdquisicion] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [saleFechaCompromisoPago, setSaleFechaCompromisoPago] = useState<string>('');
+  const [salePaymentMethod, setSalePaymentMethod] = useState<PaymentMethod>('transferencia');
+  const [saleBankOrEntity, setSaleBankOrEntity] = useState<string>('Banco Pichincha');
+  const [saleRequiresFinancing, setSaleRequiresFinancing] = useState<boolean>(false);
+  const [salePlazoMeses, setSalePlazoMeses] = useState<number>(3);
+  const [saleDiaCorte, setSaleDiaCorte] = useState<number>(15);
+  const [saleRegisterInitialPayment, setSaleRegisterInitialPayment] = useState<boolean>(false);
+  const [saleInitialPayAmount, setSaleInitialPayAmount] = useState<string>('');
+  const [saleInitialTxNumber, setSaleInitialTxNumber] = useState<string>('');
+  const [isQuickClientOpen, setIsQuickClientOpen] = useState<boolean>(false);
+  const [quickClient, setQuickClient] = useState({ cedula: '', nombres: '', apellidos: '', telefono: '', correo: '' });
+  const [quickClientError, setQuickClientError] = useState('');
+  const [saleVoucherFileName, setSaleVoucherFileName] = useState<string | null>(null);
+  const [saleVoucherFile, setSaleVoucherFile] = useState<File | null>(null);
+  const [saleVoucherPreviewUrl, setSaleVoucherPreviewUrl] = useState<string | null>(null);
+  const [observaciones, setObservaciones] = useState('');
+  const [formError, setFormError] = useState('');
+  const [showOverdueOnly, setShowOverdueOnly] = useState<boolean>(false);
+  const [showRuleBanner, setShowRuleBanner] = useState<boolean>(() => {
+    return localStorage.getItem('cmc_hide_rule_banner') !== 'true';
+  });
+
+  const handleDismissRuleBanner = () => {
+    setShowRuleBanner(false);
+    localStorage.setItem('cmc_hide_rule_banner', 'true');
+  };
+
+  const handleShowRuleBanner = () => {
+    setShowRuleBanner(true);
+    localStorage.removeItem('cmc_hide_rule_banner');
+  };
+
+  // --- BULK IMPORT MODAL STATE ---
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importProductId, setImportProductId] = useState(products[0]?.id || 'prod-01');
+  const [importSampleLoaded, setImportSampleLoaded] = useState(false);
+  const [importPreviewList, setImportPreviewList] = useState<Array<{
+    cedula: string;
+    nombres: string;
+    apellidos: string;
+    precioNominal: number;
+    precioAcordado: number;
+    observaciones?: string;
+    isExistingClient: boolean;
+    hasError: boolean;
+    errorMsg?: string;
+  }>>([]);
+
+  // --- INLINE PAYMENT REGISTRATION MODAL STATE ---
+  const [isPayModalOpen, setIsPayModalOpen] = useState(false);
+  const [debtToPay, setDebtToPay] = useState<Debt | null>(null);
+  // For top-level payment registration without pre-selected debt
+  const [payModalClientId, setPayModalClientId] = useState('');
+  const [payModalClientSearch, setPayModalClientSearch] = useState('');
+  const [payModalDebtId, setPayModalDebtId] = useState('');
+
+  const [payAmount, setPayAmount] = useState<string>('');
+  const [payDate, setPayDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [payMethod, setPayMethod] = useState<Payment['metodo']>('transferencia');
+  const [payBank, setPayBank] = useState<string>('Banco Pichincha');
+  const [payTxNumber, setPayTxNumber] = useState<string>('');
+  const [payRef, setPayRef] = useState<string>('');
+  const [payNotes, setPayNotes] = useState<string>('');
+  const [payError, setPayError] = useState<string>('');
+  const [paySuccessMsg, setPaySuccessMsg] = useState<string>('');
+  const [isPayOcrScanning, setIsPayOcrScanning] = useState(false);
+  const [payOcrExtracted, setPayOcrExtracted] = useState<ExtractedData | null>(null);
+  const [payUploadedFileName, setPayUploadedFileName] = useState<string | null>(null);
+  const [payUploadedFile, setPayUploadedFile] = useState<File | null>(null);
+  const [payFilePreviewUrl, setPayFilePreviewUrl] = useState<string | null>(null);
+
+  // --- PAYMENT HISTORY MODAL STATE ---
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [debtForHistory, setDebtForHistory] = useState<Debt | null>(null);
+
+  // --- INVOICE MODAL STATE (FOR PAID DEBTS) ---
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [debtForInvoice, setDebtForInvoice] = useState<Debt | null>(null);
+
+  // --- CANCEL PAYMENT MODAL STATE ---
+  const [paymentToCancel, setPaymentToCancel] = useState<Payment | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('');
+  const [cancelError, setCancelError] = useState<string>('');
+
+  const canCreate = hasPermission('deudas', 'crear');
+  const canPay = hasPermission('pagos', 'crear');
+  const canApprove = hasPermission('pagos', 'aprobar');
+
+  // Trigger auto-open if preselectedDebtId changes
+  useEffect(() => {
+    if (preselectedDebtId) {
+      const found = debts.find((d) => d.id === preselectedDebtId);
+      if (found) {
+        handleOpenPayModal(found);
+      }
+    }
+  }, [preselectedDebtId, debts]);
+
+  // Product autocomplete selection
+  const handleSelectProduct = (prod: Product) => {
+    setSelectedProductId(prod.id);
+    setProductSearchText(prod.nombre);
+    setPrecioNominal(prod.precioNominal);
+    if (!precioAcordado) {
+      setPrecioAcordado(prod.precioNominal.toString());
+    }
+  };
+
+  const handleCreateNewProductOnTheFly = () => {
+    if (!productSearchText.trim()) return;
+    const nominal = parseFloat(precioAcordado) || 890;
+    const newProd = addProduct({
+      nombre: productSearchText.trim(),
+      descripcion: `Programa educativo creado para asociación directa`,
+      precioNominal: nominal,
+      estado: 'activo',
+    });
+    setSelectedProductId(newProd.id);
+    setPrecioNominal(newProd.precioNominal);
+    setPrecioAcordado(newProd.precioNominal.toString());
+  };
+
+  // --- OVERDUE DEBTS & ALERTS CALCULATION ---
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const today = useMemo(() => new Date(), []);
+
+  const getDebtDelayInfo = (debt: Debt) => {
+    const fin = getDebtFinancials(debt.id);
+    const saldo = fin?.saldoPendiente ?? debt.precioAcordado;
+    if (saldo <= 0.001 || debt.estado === 'pagada' || debt.estado === 'anulada') {
+      return { isOverdue: false, daysDelayed: 0, overdueReason: '', cuotaNumero: null };
+    }
+
+    const totalAbonado = fin?.validPaymentsTotal ?? 0;
+
+    // 0. Si tiene fecha de compromiso de pago estructurada:
+    if (debt.fechaCompromisoPago) {
+      if (debt.fechaCompromisoPago < todayStr) {
+        const compDate = new Date(debt.fechaCompromisoPago);
+        const diffTime = Math.max(0, today.getTime() - compDate.getTime());
+        const daysDelayed = Math.max(1, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+        return {
+          isOverdue: true,
+          daysDelayed: debt.diasMora ? Math.max(debt.diasMora, daysDelayed) : daysDelayed,
+          overdueReason: `Compromiso de pago vencido (${debt.fechaCompromisoPago})`,
+          vencimiento: debt.fechaCompromisoPago,
+          cuotaNumero: null,
+        };
+      }
+    }
+
+    // 0.1 Si tiene días de mora explícitos:
+    if (debt.diasMora && debt.diasMora > 0) {
+      return {
+        isOverdue: true,
+        daysDelayed: debt.diasMora,
+        overdueReason: `Mora acumulada: ${debt.diasMora} días`,
+        vencimiento: debt.fechaAdquisicion,
+        cuotaNumero: null,
+      };
+    }
+
+    // 1. Si la deuda tiene cuotas configuradas:
+    if (debt.cuotas && debt.cuotas.length > 0) {
+      let acumuladoEsperado = 0;
+      for (const cuota of debt.cuotas) {
+        acumuladoEsperado += cuota.monto;
+        // Si la cuota ya venció y el total abonado no la cubre completamente
+        if (cuota.fechaVencimiento < todayStr && totalAbonado < acumuladoEsperado - 0.01) {
+          const dueDate = new Date(cuota.fechaVencimiento);
+          const diffTime = Math.max(0, today.getTime() - dueDate.getTime());
+          const daysDelayed = Math.max(1, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+          return {
+            isOverdue: true,
+            daysDelayed,
+            overdueReason: `Cuota #${cuota.numero} ($${cuota.monto.toFixed(2)}) venció el ${cuota.fechaVencimiento}`,
+            vencimiento: cuota.fechaVencimiento,
+            cuotaNumero: cuota.numero,
+          };
+        }
+      }
+    }
+
+    // 2. Si tiene día de corte mensual asignado:
+    if (debt.diaCorte) {
+      const currentDay = today.getDate();
+      const acqDate = new Date(debt.fechaAdquisicion);
+      const isPastMonth =
+        today.getFullYear() > acqDate.getFullYear() ||
+        (today.getFullYear() === acqDate.getFullYear() && today.getMonth() > acqDate.getMonth());
+
+      if (isPastMonth || currentDay > debt.diaCorte) {
+        const cutDate = new Date(today.getFullYear(), today.getMonth(), debt.diaCorte);
+        if (today > cutDate) {
+          const daysDelayed = Math.max(1, Math.floor((today.getTime() - cutDate.getTime()) / (1000 * 60 * 60 * 24)));
+          return {
+            isOverdue: true,
+            daysDelayed,
+            overdueReason: `Corte mensual (Día ${debt.diaCorte}) superado con saldo impago`,
+            vencimiento: cutDate.toISOString().slice(0, 10),
+            cuotaNumero: null,
+          };
+        }
+      }
+    }
+
+    // 3. Deuda estándar de contado sin pagar tras 30 días:
+    const acq = new Date(debt.fechaAdquisicion);
+    const daysSinceAcq = Math.floor((today.getTime() - acq.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysSinceAcq > 30) {
+      return {
+        isOverdue: true,
+        daysDelayed: daysSinceAcq - 30,
+        overdueReason: `Pago de contado pendiente por más de 30 días`,
+        vencimiento: debt.fechaAdquisicion,
+        cuotaNumero: null,
+      };
+    }
+
+    return { isOverdue: false, daysDelayed: 0, overdueReason: '', cuotaNumero: null };
+  };
+
+  // Listado de todas las deudas retrasadas para la sección de alertas
+  const overdueDebtsList = useMemo(() => {
+    return debts
+      .map((d) => ({ debt: d, delay: getDebtDelayInfo(d) }))
+      .filter((item) => item.delay.isOverdue)
+      .sort((a, b) => b.delay.daysDelayed - a.delay.daysDelayed);
+  }, [debts, todayStr, today, payments]);
+
+  const totalOverdueBalance = useMemo(() => {
+    return overdueDebtsList.reduce((sum, item) => {
+      const fin = getDebtFinancials(item.debt.id);
+      return sum + (fin?.saldoPendiente || item.debt.precioAcordado);
+    }, 0);
+  }, [overdueDebtsList, getDebtFinancials]);
+
+  const totalPortfolioBalance = useMemo(() => {
+    return debts
+      .filter((d) => d.estado !== 'anulada')
+      .reduce((sum, d) => {
+        const fin = getDebtFinancials(d.id);
+        return sum + (fin?.saldoPendiente || 0);
+      }, 0);
+  }, [debts, getDebtFinancials]);
+
+  const overduePercentage = useMemo(() => {
+    if (totalPortfolioBalance <= 0) return 0;
+    return Math.min(100, Math.round((totalOverdueBalance / totalPortfolioBalance) * 100));
+  }, [totalOverdueBalance, totalPortfolioBalance]);
+
+  // Conteo dinámico para las 4 pestañas de estado de deudas
+  const debtCountsByTab = useMemo(() => {
+    let alDia = 0;
+    let vencidos = 0;
+    let enComprobacion = 0;
+    let conciliados = 0;
+
+    debts.forEach((debt) => {
+      if (debt.estado === 'anulada') return;
+      const fin = getDebtFinancials(debt.id);
+      const isPaid = (fin?.saldoPendiente || 0) <= 0.001 || debt.estado === 'pagada';
+      const delay = getDebtDelayInfo(debt);
+      const hasPendingPayment = payments.some(
+        (p) =>
+          p.deudaId === debt.id &&
+          p.estadoRegistro !== 'anulado' &&
+          (p.estadoConciliacion === 'pendiente' || p.estadoConciliacion === 'revision_manual' || p.estadoConciliacion === 'con_diferencias')
+      );
+      const isEnComp = debt.estado === 'en_comprobacion' || (hasPendingPayment && !isPaid);
+
+      if (isPaid) {
+        conciliados++;
+      } else if (isEnComp) {
+        enComprobacion++;
+      } else if (delay.isOverdue) {
+        vencidos++;
+      } else {
+        alDia++;
+      }
+    });
+
+    return {
+      todas: debts.length,
+      al_dia: alDia,
+      vencidos,
+      en_comprobacion: enComprobacion,
+      conciliados,
+    };
+  }, [debts, payments, todayStr, today, getDebtFinancials]);
+
+  // --- FILTERED DEBTS ---
+  const filteredDebts = useMemo(() => {
+    return debts.filter((debt) => {
+      const client = clients.find((c) => c.id === debt.clienteId);
+      const product = products.find((p) => p.id === debt.productoId);
+
+      const matchesSearch =
+        client?.nombres.toLowerCase().includes(debtSearchQuery.toLowerCase()) ||
+        client?.apellidos.toLowerCase().includes(debtSearchQuery.toLowerCase()) ||
+        client?.cedula.toLowerCase().includes(debtSearchQuery.toLowerCase()) ||
+        product?.nombre.toLowerCase().includes(debtSearchQuery.toLowerCase());
+
+      const matchesProduct = productFilter === 'all' || debt.productoId === productFilter;
+      const matchesStatus = statusFilter === 'all' || debt.estado === statusFilter;
+
+      const debtMethod =
+        debt.metodoPago || payments.find((p) => p.deudaId === debt.id)?.metodo || 'transferencia';
+      const matchesMethod = debtMethodFilter === 'all' || debtMethod === debtMethodFilter;
+
+      const delay = getDebtDelayInfo(debt);
+      const fin = getDebtFinancials(debt.id);
+      const isPaid = (fin?.saldoPendiente || 0) <= 0.001 || debt.estado === 'pagada';
+      const hasPendingPayment = payments.some(
+        (p) =>
+          p.deudaId === debt.id &&
+          p.estadoRegistro !== 'anulado' &&
+          (p.estadoConciliacion === 'pendiente' || p.estadoConciliacion === 'revision_manual' || p.estadoConciliacion === 'con_diferencias')
+      );
+      const isEnComp = debt.estado === 'en_comprobacion' || (hasPendingPayment && !isPaid);
+
+      let matchesTab = true;
+      if (debtStatusTab === 'al_dia') {
+        matchesTab = !isPaid && debt.estado !== 'anulada' && !isEnComp && !delay.isOverdue;
+      } else if (debtStatusTab === 'vencidos') {
+        matchesTab = !isPaid && debt.estado !== 'anulada' && delay.isOverdue;
+      } else if (debtStatusTab === 'en_comprobacion') {
+        matchesTab = isEnComp && debt.estado !== 'anulada';
+      } else if (debtStatusTab === 'conciliados') {
+        matchesTab = isPaid && debt.estado !== 'anulada';
+      }
+
+      const matchesOverdue = !showOverdueOnly || delay.isOverdue;
+
+      return matchesSearch && matchesProduct && matchesStatus && matchesMethod && matchesTab && matchesOverdue;
+    });
+  }, [
+    debts,
+    clients,
+    products,
+    payments,
+    debtSearchQuery,
+    productFilter,
+    statusFilter,
+    debtMethodFilter,
+    debtStatusTab,
+    showOverdueOnly,
+    todayStr,
+    today,
+    getDebtFinancials,
+  ]);
+
+  const debtsTotalPages = Math.ceil(filteredDebts.length / debtsPageSize) || 1;
+  const paginatedDebts = useMemo(() => {
+    const startIndex = (debtsCurrentPage - 1) * debtsPageSize;
+    return filteredDebts.slice(startIndex, startIndex + debtsPageSize);
+  }, [filteredDebts, debtsCurrentPage, debtsPageSize]);
+
+  // --- FILTERED PAYMENTS (TAB 2) ---
+  const filteredPayments = useMemo(() => {
+    return payments.filter((payment) => {
+      const client = clients.find((c) => c.id === payment.clienteId);
+      const matchesSearch =
+        client?.nombres.toLowerCase().includes(paymentSearchQuery.toLowerCase()) ||
+        client?.apellidos.toLowerCase().includes(paymentSearchQuery.toLowerCase()) ||
+        client?.cedula.includes(paymentSearchQuery) ||
+        payment.numeroTransaccion?.toLowerCase().includes(paymentSearchQuery.toLowerCase()) ||
+        payment.bancoOrigen?.toLowerCase().includes(paymentSearchQuery.toLowerCase());
+
+      const matchesRec =
+        reconciliationFilter === 'all' || payment.estadoConciliacion === reconciliationFilter;
+      const matchesStatus =
+        paymentStatusFilter === 'all' || payment.estadoRegistro === paymentStatusFilter;
+      const matchesMethod =
+        paymentMethodFilter === 'all' || payment.metodo === paymentMethodFilter;
+
+      return matchesSearch && matchesRec && matchesStatus && matchesMethod;
+    });
+  }, [payments, clients, paymentSearchQuery, reconciliationFilter, paymentStatusFilter, paymentMethodFilter]);
+
+  const paymentsTotalPages = Math.ceil(filteredPayments.length / paymentsPageSize) || 1;
+  const paginatedPayments = useMemo(() => {
+    const startIndex = (paymentsCurrentPage - 1) * paymentsPageSize;
+    return filteredPayments.slice(startIndex, startIndex + paymentsPageSize);
+  }, [filteredPayments, paymentsCurrentPage, paymentsPageSize]);
+
+  // Aggregate Metrics for Header Badges
+  const validPaymentsTotalSum = useMemo(() => {
+    return payments
+      .filter((p) => p.estadoRegistro !== 'anulado')
+      .reduce((sum, p) => sum + p.monto, 0);
+  }, [payments]);
+
+  const pendingDebtsCount = useMemo(() => {
+    return debts.filter((d) => d.estado !== 'pagada' && d.estado !== 'anulada').length;
+  }, [debts]);
+
+  // Search candidates for creating debt
+  const clientCandidates = useMemo(() => {
+    if (!clientSearchText.trim()) return clients.slice(0, 8);
+    const q = clientSearchText.toLowerCase();
+    return clients.filter(
+      (c) =>
+        c.nombres.toLowerCase().includes(q) ||
+        c.apellidos.toLowerCase().includes(q) ||
+        c.cedula.includes(q)
+    );
+  }, [clients, clientSearchText]);
+
+  const productCandidates = useMemo(() => {
+    if (!productSearchText.trim()) return products;
+    const q = productSearchText.toLowerCase();
+    return products.filter((p) => p.nombre.toLowerCase().includes(q));
+  }, [products, productSearchText]);
+
+  // Candidates for top-level payment modal
+  const payModalClientCandidates = useMemo(() => {
+    if (!payModalClientSearch.trim()) return clients.slice(0, 8);
+    const q = payModalClientSearch.toLowerCase();
+    return clients.filter(
+      (c) =>
+        c.nombres.toLowerCase().includes(q) ||
+        c.apellidos.toLowerCase().includes(q) ||
+        c.cedula.includes(q)
+    );
+  }, [clients, payModalClientSearch]);
+
+  const debtsForSelectedPayClient = useMemo(() => {
+    if (!payModalClientId) return [];
+    return debts.filter((d) => d.clienteId === payModalClientId && d.estado !== 'anulada');
+  }, [debts, payModalClientId]);
+
+  // --- ACTIONS ---
+  const handleOpenCreateModal = () => {
+    setSelectedClientId('');
+    setClientSearchText('');
+    setSelectedProductId('');
+    setProductSearchText('');
+    setPrecioNominal(products[0]?.precioNominal || 890);
+    setPrecioAcordado((products[0]?.precioNominal || 890).toString());
+    setSaleFechaAdquisicion(new Date().toISOString().slice(0, 10));
+    setSaleFechaCompromisoPago('');
+    setSaleRequiresFinancing(false);
+    setSalePlazoMeses(3);
+    setSaleDiaCorte(15);
+    setSalePaymentMethod('transferencia');
+    setSaleBankOrEntity('Banco Pichincha');
+    setSaleRegisterInitialPayment(false);
+    setSaleInitialPayAmount('');
+    setSaleInitialTxNumber('');
+    setSaleVoucherFileName(null);
+    setSaleVoucherFile(null);
+    setSaleVoucherPreviewUrl(null);
+    setObservaciones('');
+    setFormError('');
+    setIsCreateModalOpen(true);
+  };
+
+  const handleOpenPayModal = (debt: Debt) => {
+    const fin = getDebtFinancials(debt.id);
+    const remaining = fin?.saldoPendiente || debt.precioAcordado;
+    setDebtToPay(debt);
+    setPayModalClientId(debt.clienteId);
+    setPayModalDebtId(debt.id);
+    setPayAmount(remaining > 0 ? remaining.toFixed(2) : debt.precioAcordado.toFixed(2));
+    setPayDate(new Date().toISOString().slice(0, 10));
+    setPayMethod('transferencia');
+    setPayBank('Banco Pichincha');
+    setPayTxNumber('');
+    setPayRef(`Abono a deuda ${debt.id}`);
+    setPayNotes('');
+    setPayError('');
+    setPayOcrExtracted(null);
+    setPayUploadedFileName(null);
+    setPayUploadedFile(null);
+    setPayFilePreviewUrl(null);
+    setIsPayModalOpen(true);
+  };
+
+  const handlePayMethodChange = (method: Payment['metodo']) => {
+    setPayMethod(method);
+    if (method === 'efectivo') {
+      setPayBank('Caja Principal');
+    } else if (method === 'tarjeta') {
+      setPayBank('Visa (Datafast)');
+    } else if (method === 'transferencia') {
+      setPayBank('Banco Pichincha');
+    } else if (method === 'deposito') {
+      setPayBank('Banco Pichincha');
+    }
+  };
+
+  const handleOpenTopLevelPayModal = () => {
+    setDebtToPay(null);
+    setPayModalClientId(clients[0]?.id || '');
+    setPayModalClientSearch('');
+    const firstClientDebts = debts.filter(
+      (d) => d.clienteId === (clients[0]?.id || '') && d.estado !== 'anulada'
+    );
+    const firstDebt = firstClientDebts[0];
+    setPayModalDebtId(firstDebt?.id || '');
+    const fin = firstDebt ? getDebtFinancials(firstDebt.id) : null;
+    setPayAmount(fin ? fin.saldoPendiente.toFixed(2) : '150.00');
+    setPayDate(new Date().toISOString().slice(0, 10));
+    setPayMethod('transferencia');
+    setPayBank('Banco Pichincha');
+    setPayTxNumber('');
+    setPayRef('Abono educativo cuota directa');
+    setPayNotes('');
+    setPayError('');
+    setPayOcrExtracted(null);
+    setPayUploadedFileName(null);
+    setPayUploadedFile(null);
+    setPayFilePreviewUrl(null);
+    setIsPayModalOpen(true);
+  };
+
+  const handleVoucherFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPayUploadedFile(file);
+    setPayUploadedFileName(file.name);
+
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setPayFilePreviewUrl(ev.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setPayFilePreviewUrl(null);
+    }
+    e.target.value = '';
+  };
+
+  const handleQuickClientSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setQuickClientError('');
+
+    const cedula = quickClient.cedula.trim();
+    if (!/^\d{10}$/.test(cedula)) {
+      setQuickClientError('La cédula debe contener exactamente 10 dígitos numéricos.');
+      return;
+    }
+
+    const nombres = quickClient.nombres.trim();
+    if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]{2,}$/.test(nombres)) {
+      setQuickClientError('Los nombres solo deben contener letras (mínimo 2 caracteres).');
+      return;
+    }
+
+    const apellidos = quickClient.apellidos.trim();
+    if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]{2,}$/.test(apellidos)) {
+      setQuickClientError('Los apellidos solo deben contener letras (mínimo 2 caracteres).');
+      return;
+    }
+
+    const correo = quickClient.correo.trim();
+    if (correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
+      setQuickClientError('Ingrese un formato de correo electrónico válido.');
+      return;
+    }
+
+    if (clients.some((c) => c.cedula.toLowerCase().trim() === cedula.toLowerCase())) {
+      setQuickClientError('Ya existe un cliente con esa cédula.');
+      return;
+    }
+
+    try {
+      const created = await addClient({
+        cedula: cedula,
+        nombres: nombres,
+        apellidos: apellidos,
+        telefono: quickClient.telefono.trim(),
+        correo: correo,
+        estado: 'activo',
+        notas: '',
+      });
+      setSelectedClientId(created.id);
+      setClientSearchText(`${created.nombres} ${created.apellidos} (${created.cedula})`);
+      setIsQuickClientOpen(false);
+      setQuickClient({ cedula: '', nombres: '', apellidos: '', telefono: '', correo: '' });
+    } catch (err: any) {
+      setQuickClientError(err.message || 'Error al registrar cliente');
+    }
+  };
+
+  const handleSaleVoucherUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSaleVoucherFile(file);
+    setSaleVoucherFileName(file.name);
+
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setSaleVoucherPreviewUrl(ev.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setSaleVoucherPreviewUrl(null);
+    }
+    e.target.value = '';
+  };
+
+
+  const handleRegisterPaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPayError('');
+
+    const targetDebt = debtToPay || debts.find((d) => d.id === payModalDebtId);
+    if (!targetDebt) {
+      setPayError('Debe seleccionar una deuda o adquisición para aplicar el pago.');
+      return;
+    }
+
+    const montoVal = parseFloat(payAmount);
+    if (isNaN(montoVal) || montoVal <= 0) {
+      setPayError('El monto del pago debe ser mayor a 0.');
+      return;
+    }
+
+    const fin = getDebtFinancials(targetDebt.id);
+    const saldo = fin?.saldoPendiente || targetDebt.precioAcordado;
+
+    if (montoVal > saldo + 0.01) {
+      setPayError(`El monto ($${montoVal.toFixed(2)}) no puede exceder el saldo pendiente ($${saldo.toFixed(2)}).`);
+      return;
+    }
+
+    try {
+      const payment = await registerPayment(
+        {
+          deudaId: targetDebt.id,
+          clienteId: targetDebt.clienteId,
+          monto: montoVal,
+          fechaPago: payDate,
+          metodo: payMethod,
+          bancoOrigen: payBank,
+          numeroTransaccion: payTxNumber.trim() || undefined,
+          referencia: payRef.trim() || undefined,
+          observaciones: payNotes.trim() || undefined,
+        },
+        payUploadedFileName
+          ? {
+              nombreArchivo: payUploadedFileName,
+              tipoArchivo: payUploadedFile?.type || 'image/jpeg',
+              archivoUrl: payFilePreviewUrl || undefined,
+            }
+          : undefined,
+        targetDebt,
+        payUploadedFile || undefined
+      );
+
+      logAudit(
+        'pagos',
+        'crear',
+        'pago',
+        payment.id,
+        undefined,
+        {
+          deudaId: targetDebt.id,
+          monto: montoVal,
+          metodo: payMethod,
+          bancoOrigen: payBank,
+          numeroTransaccion: payTxNumber,
+          estado: 'en_comprobacion',
+        },
+        `Pago manual de $${montoVal.toFixed(2)} registrado en estado En Comprobación`
+      );
+
+      setPaySuccessMsg(`Pago de $${montoVal.toFixed(2)} registrado en estado "En Comprobación" (pendiente de validación bancaria).`);
+      setTimeout(() => {
+        setIsPayModalOpen(false);
+        setDebtToPay(null);
+        setPaySuccessMsg('');
+      }, 1000);
+    } catch (err: any) {
+      setPayError(err.message || 'Error al procesar el pago');
+    }
+  };
+
+  const handleCancelPaymentSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCancelError('');
+    if (!paymentToCancel) return;
+    if (!cancelReason.trim() || cancelReason.trim().length < 5) {
+      setCancelError('Ingrese un motivo detallado (mínimo 5 caracteres) para auditoría.');
+      return;
+    }
+
+    cancelPayment(paymentToCancel.id, cancelReason.trim());
+    setPaymentToCancel(null);
+    setCancelReason('');
+  };
+
+  const handleCreateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError('');
+
+    if (!selectedClientId) {
+      setFormError('Debe seleccionar un alumno / cliente.');
+      return;
+    }
+    if (!selectedProductId) {
+      setFormError('Debe seleccionar un programa o curso.');
+      return;
+    }
+
+    const acordado = parseFloat(precioAcordado);
+    if (isNaN(acordado) || acordado <= 0) {
+      setFormError('Ingrese un precio acordado válido mayor a 0.');
+      return;
+    }
+
+    // Generar cronograma de cuotas si el cliente acordó financiamiento / pagos diferidos
+    let cuotasGeneradas: Array<{
+      numero: number;
+      monto: number;
+      fechaVencimiento: string;
+      estado: 'pendiente' | 'pagada' | 'vencida';
+    }> | undefined = undefined;
+
+    let plazoGuardado: number | undefined = undefined;
+    let diaCorteGuardado: number | undefined = undefined;
+
+    if (saleRequiresFinancing) {
+      const meses = Math.max(1, salePlazoMeses || 1);
+      const valorPorCuota = parseFloat((acordado / meses).toFixed(2));
+      const diaCorteElegido = Math.min(30, Math.max(1, saleDiaCorte || 15));
+      
+      const baseDate = new Date();
+      cuotasGeneradas = [];
+
+      for (let i = 1; i <= meses; i++) {
+        const dueDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + i, diaCorteElegido);
+        const fechaVenc = dueDate.toISOString().slice(0, 10);
+        cuotasGeneradas.push({
+          numero: i,
+          monto: i === meses ? parseFloat((acordado - valorPorCuota * (meses - 1)).toFixed(2)) : valorPorCuota,
+          fechaVencimiento: fechaVenc,
+          estado: 'pendiente',
+        });
+      }
+
+      plazoGuardado = salePlazoMeses;
+      diaCorteGuardado = saleDiaCorte;
+    }
+
+    try {
+      const newDebt = await addDebt({
+        clienteId: selectedClientId,
+        productoId: selectedProductId,
+        fechaAdquisicion: saleFechaAdquisicion || new Date().toISOString().slice(0, 10),
+        fechaCompromisoPago: saleFechaCompromisoPago || undefined,
+        precioNominalAplicado: precioNominal,
+        precioAcordado: acordado,
+        metodoPago: salePaymentMethod,
+        plazoMeses: plazoGuardado,
+        diaCorte: diaCorteGuardado,
+        cuotas: cuotasGeneradas,
+        observaciones: observaciones.trim() || undefined,
+      });
+
+      // Si se activó registrar pago inicial inmediato:
+      if (saleRegisterInitialPayment) {
+        const initAmount = parseFloat(saleInitialPayAmount);
+        if (!isNaN(initAmount) && initAmount > 0) {
+          const finalInitAmount = Math.min(initAmount, acordado);
+          await registerPayment(
+            {
+              deudaId: newDebt.id,
+              clienteId: selectedClientId,
+              monto: finalInitAmount,
+              fechaPago: new Date().toISOString().slice(0, 10),
+              metodo: salePaymentMethod,
+              bancoOrigen: saleBankOrEntity,
+              numeroTransaccion: saleInitialTxNumber.trim() || undefined,
+              referencia: `Abono inicial venta ${newDebt.id}`,
+              observaciones: `Abono inicial registrado en conjunto con la nueva venta (${salePaymentMethod})`,
+            },
+            saleVoucherFileName
+              ? {
+                  nombreArchivo: saleVoucherFileName,
+                  tipoArchivo: saleVoucherFile?.type || (/\.(png|jpe?g)$/i.test(saleVoucherFileName) ? 'image/jpeg' : 'application/pdf'),
+                  archivoUrl: saleVoucherPreviewUrl || undefined,
+                }
+              : undefined,
+            newDebt,
+            saleVoucherFile || undefined
+          );
+          logAudit(
+            'pagos',
+            'crear',
+            'pago',
+            `pay-init-${newDebt.id}`,
+            undefined,
+            {
+              deudaId: newDebt.id,
+              monto: finalInitAmount,
+              metodo: salePaymentMethod,
+            },
+            `Abono inicial de $${finalInitAmount.toFixed(2)} registrado al crear la venta en PostgreSQL`
+          );
+        }
+      }
+
+      setIsCreateModalOpen(false);
+      setSelectedClientId('');
+      setClientSearchText('');
+      setSelectedProductId('');
+      setProductSearchText('');
+      setPrecioAcordado('');
+      setSaleFechaAdquisicion(new Date().toISOString().slice(0, 10));
+      setSaleFechaCompromisoPago('');
+      setSaleRegisterInitialPayment(false);
+      setSaleInitialPayAmount('');
+      setSaleInitialTxNumber('');
+      setSaleVoucherFileName(null);
+      setSaleVoucherFile(null);
+      setSaleVoucherPreviewUrl(null);
+      setObservaciones('');
+    } catch (err: any) {
+      setFormError(err.message || 'Error al registrar la venta en la base de datos');
+    }
+  };
+
+  const handleDebtFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (!content) return;
+
+      const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
+      if (lines.length === 0) return;
+
+      const selectedProd = products.find((p) => p.id === importProductId);
+      const nominal = selectedProd?.precioNominal || 890;
+      const startIndex = lines[0].toLowerCase().includes('cedula') || lines[0].toLowerCase().includes('cédula') ? 1 : 0;
+      const parsed: Array<{
+        cedula: string;
+        nombres: string;
+        apellidos: string;
+        precioNominal: number;
+        precioAcordado: number;
+        observaciones: string;
+        isExistingClient: boolean;
+        hasError: boolean;
+        errorMsg?: string;
+      }> = [];
+
+      for (let i = startIndex; i < lines.length; i++) {
+        const parts = lines[i].split(/[,;\t]/).map((p) => p.trim());
+        if (parts.length >= 2 && parts[0]) {
+          const ced = parts[0];
+          const exists = clients.some((c) => c.cedula.toLowerCase() === ced.toLowerCase());
+          const acordado = parseFloat(parts[3] || '') || nominal;
+          const hasErr = acordado < 0;
+          parsed.push({
+            cedula: ced,
+            nombres: parts[1] || '',
+            apellidos: parts[2] || '',
+            precioNominal: nominal,
+            precioAcordado: acordado,
+            observaciones: parts[4] || 'Inscripción vía archivo',
+            isExistingClient: exists,
+            hasError: hasErr,
+            errorMsg: hasErr ? 'El precio acordado no puede ser negativo' : undefined,
+          });
+        }
+      }
+
+      if (parsed.length > 0) {
+        setImportPreviewList(parsed);
+        setImportSampleLoaded(true);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleFixPreviewItem = (index: number, newPrice: number) => {
+    setImportPreviewList((prev) => {
+      const updated = [...prev];
+      updated[index] = {
+        ...updated[index],
+        precioAcordado: newPrice,
+        hasError: newPrice <= 0,
+        errorMsg: newPrice <= 0 ? 'Precio acordado debe ser mayor a 0' : undefined,
+      };
+      return updated;
+    });
+  };
+
+  const handleConfirmBulkImport = () => {
+    const hasUnresolved = importPreviewList.some((i) => i.hasError);
+    if (hasUnresolved) {
+      alert('Por favor corrija los precios erróneos antes de confirmar la importación.');
+      return;
+    }
+
+    const itemsToImport = importPreviewList.map((item) => {
+      let client = clients.find((c) => c.cedula.includes(item.cedula));
+      let cid = client?.id;
+      if (!cid) {
+        cid = `cli-imp-${Date.now().toString().slice(-4)}`;
+      }
+      return {
+        clienteId: cid,
+        productoId: importProductId,
+        fechaAdquisicion: new Date().toISOString().slice(0, 10),
+        precioNominal: item.precioNominal,
+        precioAcordado: item.precioAcordado,
+        observaciones: item.observaciones,
+      };
+    });
+
+    importDebtsBulk(itemsToImport);
+    setIsImportModalOpen(false);
+    setImportSampleLoaded(false);
+    setImportPreviewList([]);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* --- UNIFIED TABS NAVIGATION HEADER --- */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 p-2 bg-slate-200/70 p-1.5 rounded-2xl border border-slate-300/60 shadow-2xs">
+        <div className="flex items-center gap-1.5 flex-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab('deudas')}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'deudas'
+                ? 'bg-white text-slate-900 font-bold shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+            }`}
+          >
+            <Receipt className="w-4 h-4 text-sky-600" />
+            <span>Cuentas por Cobrar (Deudas)</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
+              {debts.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('pagos')}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'pagos'
+                ? 'bg-white text-emerald-950 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+            }`}
+          >
+            <CreditCard className="w-4 h-4 text-emerald-600" />
+            <span>Histórico General de Pagos</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              {payments.length} (${validPaymentsTotalSum.toFixed(2)})
+            </span>
+          </button>
+        </div>
+
+        {/* Global Action Shortcuts: Nueva Venta y Registrar Pago (con Nueva Venta en primera posición) */}
+        <div className="flex items-center gap-2 px-1">
+          {canCreate && (
+            <button
+              onClick={handleOpenCreateModal}
+              className="w-full sm:w-auto px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Nueva Venta</span>
+            </button>
+          )}
+
+          {canPay && (
+            <button
+              onClick={handleOpenTopLevelPayModal}
+              className="w-full sm:w-auto px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
+            >
+              <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Registrar Pago</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* TAB 1: CUENTAS POR COBRAR (DEUDAS Y ADQUISICIONES)                       */}
+      {/* ========================================================================= */}
+      {activeTab === 'deudas' && (
+        <div className="space-y-4">
+          {/* SECCIÓN DE ALERTAS DE RETRASO Y CUOTAS VENCIDAS (TARJETA KPI EJECUTIVA) */}
+          {overdueDebtsList.length > 0 && (
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs relative overflow-hidden before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1.5 before:bg-rose-500 before:rounded-l-2xl">
+              <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pl-2">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0">
+                    <ShieldAlert className="w-5 h-5 text-rose-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-bold text-slate-900 text-sm tracking-tight">
+                        Cartera en Riesgo: Cuotas y Pagos en Retraso
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                        {overdueDebtsList.length} {overdueDebtsList.length === 1 ? 'caso en mora' : 'casos en mora'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Cuentas impagas que superaron su compromiso o día de corte. Gestiona los cobros directamente desde la tabla.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 w-full lg:w-auto justify-between lg:justify-end border-t lg:border-t-0 pt-3 lg:pt-0 border-slate-100 shrink-0">
+                  <div className="text-left lg:text-right">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                      Saldo en Retraso {overduePercentage > 0 && `(${overduePercentage}% de cartera activa)`}
+                    </span>
+                    <span className="text-xl font-black text-rose-600 font-mono tracking-tight">
+                      ${totalOverdueBalance.toFixed(2)} <span className="text-xs font-semibold text-slate-400 font-sans">USD</span>
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowOverdueOnly(!showOverdueOnly);
+                      setDebtsCurrentPage(1);
+                    }}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition-all inline-flex items-center gap-2 shadow-2xs shrink-0 cursor-pointer ${
+                      showOverdueOnly
+                        ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-xs'
+                        : 'bg-slate-50 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 hover:border-rose-300'
+                    }`}
+                  >
+                    <Bell className={`w-3.5 h-3.5 ${showOverdueOnly ? 'text-white' : 'text-rose-600'}`} />
+                    <span>{showOverdueOnly ? 'Mostrando solo retrasados' : 'Filtrar cuentas con retraso'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Informative Rule Note (Colapsable y Descartable para optimizar altura) */}
+          {showRuleBanner ? (
+            <div className="p-3 bg-sky-50/70 border border-sky-100 rounded-2xl text-xs text-slate-700 flex items-start justify-between gap-3 shadow-2xs transition-all">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <Receipt className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <strong className="text-slate-900 font-semibold">Regla Conceptual:</strong> Cada deuda representa una venta o adquisición académica. Puedes registrar nuevas ventas con plazos y cortes, pulsar <strong className="text-sky-700">Pagar</strong> para abonos con comprobante, consultar el <strong className="text-slate-900">Historial</strong> y emitir la <strong className="text-slate-900">Factura oficial</strong> en adquisiciones liquidadas.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleDismissRuleBanner}
+                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-white/80 transition-colors shrink-0 cursor-pointer"
+                title="Ocultar guía para ahorrar espacio en pantalla"
+                aria-label="Cerrar regla conceptual"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex justify-end -mb-1">
+              <button
+                type="button"
+                onClick={handleShowRuleBanner}
+                className="text-[11px] text-slate-400 hover:text-sky-600 font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+                title="Mostrar guía de operación de cartera"
+              >
+                <Receipt className="w-3.5 h-3.5" />
+                <span>Ver guía conceptual</span>
+              </button>
+            </div>
+          )}
+
+          {/* PESTAÑAS DE ESTADO DE DEUDAS (4 PESTAÑAS CLAVE + TODAS) */}
+          <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-200/70 rounded-2xl border border-slate-300/70 shadow-2xs">
+            <button
+              type="button"
+              onClick={() => {
+                setDebtStatusTab('todas');
+                setDebtsCurrentPage(1);
+              }}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                debtStatusTab === 'todas'
+                  ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <span>Todas las Cuentas</span>
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-200 text-slate-700 font-mono">
+                {debtCountsByTab.todas}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDebtStatusTab('al_dia');
+                setDebtsCurrentPage(1);
+              }}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                debtStatusTab === 'al_dia'
+                  ? 'bg-sky-50 text-sky-900 border border-sky-300 shadow-sm ring-1 ring-sky-400/20'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" />
+              <span>Al Día / Próximos a Cobrar</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 font-mono">
+                {debtCountsByTab.al_dia}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDebtStatusTab('vencidos');
+                setDebtsCurrentPage(1);
+              }}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                debtStatusTab === 'vencidos'
+                  ? 'bg-rose-50 text-rose-900 border border-rose-300 shadow-sm ring-1 ring-rose-400/20'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 text-rose-600" />
+              <span>Vencidos (En Mora)</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 font-mono">
+                {debtCountsByTab.vencidos}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDebtStatusTab('en_comprobacion');
+                setDebtsCurrentPage(1);
+              }}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                debtStatusTab === 'en_comprobacion'
+                  ? 'bg-amber-50 text-amber-950 border border-amber-300 shadow-sm ring-1 ring-amber-400/20'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+              <span>En Comprobación</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 font-mono">
+                {debtCountsByTab.en_comprobacion}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDebtStatusTab('conciliados');
+                setDebtsCurrentPage(1);
+              }}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                debtStatusTab === 'conciliados'
+                  ? 'bg-teal-50 text-teal-950 border border-teal-300 shadow-sm ring-1 ring-teal-400/20'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5 text-teal-700" />
+              <span>Conciliados / Pagados</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-900 font-mono">
+                {debtCountsByTab.conciliados}
+              </span>
+            </button>
+          </div>
+
+          {/* Filter and Action Bar */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-xs">
+            <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+              {/* Search */}
+              <div className="relative flex-1 min-w-[220px] max-w-sm">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Buscar por alumno, cédula o programa..."
+                  value={debtSearchQuery}
+                  onChange={(e) => {
+                    setDebtSearchQuery(e.target.value);
+                    setDebtsCurrentPage(1);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all"
+                />
+              </div>
+
+              {/* Custom Selectors and Actions */}
+              <div className="flex flex-wrap items-center gap-2">
+                <CustomSelect
+                  options={[
+                    { value: 'all', label: 'Todos los programas' },
+                    ...products.map((p) => ({
+                      value: p.id,
+                      label: p.nombre,
+                    })),
+                  ]}
+                  value={productFilter}
+                  onChange={(val) => {
+                    setProductFilter(val);
+                    setDebtsCurrentPage(1);
+                  }}
+                  searchable={products.length > 5}
+                  className="w-44"
+                />
+
+                <CustomSelect
+                  options={[
+                    { value: 'all', label: 'Todos los estados' },
+                    { value: 'pendiente', label: 'Pendientes de pago' },
+                    { value: 'parcial', label: 'Parcialmente pagadas' },
+                    { value: 'pagada', label: 'Totalmente pagadas' },
+                    { value: 'anulada', label: 'Anuladas' },
+                  ]}
+                  value={statusFilter}
+                  onChange={(val) => {
+                    setStatusFilter(val);
+                    setDebtsCurrentPage(1);
+                  }}
+                  className="w-40"
+                />
+
+                <CustomSelect
+                  options={[
+                    { value: 'all', label: 'Todos los tipos de pago' },
+                    { value: 'transferencia', label: 'Transferencia' },
+                    { value: 'efectivo', label: 'Efectivo' },
+                    { value: 'tarjeta', label: 'Tarjeta' },
+                    { value: 'deposito', label: 'Depósito' },
+                  ]}
+                  value={debtMethodFilter}
+                  onChange={(val) => {
+                    setDebtMethodFilter(val);
+                    setDebtsCurrentPage(1);
+                  }}
+                  className="w-44"
+                />
+
+                {/* Separador vertical sutil */}
+                <div className="hidden xl:block h-6 w-px bg-slate-200 mx-0.5" />
+
+                {/* Acciones de Carga Masiva y Exportación agrupada */}
+                <div className="flex items-center gap-2 ml-auto lg:ml-0">
+                  {canCreate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImportSampleLoaded(false);
+                        setImportPreviewList([]);
+                        setIsImportModalOpen(true);
+                      }}
+                      className="px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                      title="Cargar masivamente inscripciones desde Excel"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Carga Masiva</span>
+                    </button>
+                  )}
+
+                  {canExport && (
+                    <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 p-0.5 shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={handleExportDebtsExcel}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-emerald-800 hover:bg-white hover:shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                        title="Exportar cartera a formato Excel / CSV"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Excel</span>
+                      </button>
+                      <div className="h-3.5 w-px bg-slate-200" />
+                      <button
+                        type="button"
+                        onClick={handleExportDebtsPDF}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700 hover:bg-white hover:shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                        title="Exportar cartera a documento PDF oficial"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-slate-500" />
+                        <span>PDF</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Debts Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-2xl">
+              <span className="text-xs text-slate-500 font-medium">
+                Mostrando <strong>{paginatedDebts.length}</strong> de <strong>{filteredDebts.length}</strong> deudas/adquisiciones
+              </span>
+              <span className="text-[11px] text-slate-400">
+                Saldos recalculados automáticamente según pagos válidos en tiempo real
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-400 font-semibold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-4">Alumno / Cliente</th>
+                    <th className="py-3 px-4">Programa / Producto</th>
+                    <th className="py-3 px-4">Tipo de Pago</th>
+                    <th className="py-3 px-4 text-right">P. Acordado</th>
+                    <th className="py-3 px-4 text-right">Pagos Acumulados</th>
+                    <th className="py-3 px-4 text-right">Saldo Pendiente</th>
+                    <th className="py-3 px-4">Estado</th>
+                    <th className="py-3 px-4 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {paginatedDebts.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-8 text-center text-slate-400 italic">
+                        No se encontraron registros con los filtros seleccionados.
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedDebts.map((debt) => {
+                      const fin = getDebtFinancials(debt.id);
+                      const client = clients.find((c) => c.id === debt.clienteId);
+                      const product = products.find((p) => p.id === debt.productoId);
+                      const isPaid = (fin?.saldoPendiente || 0) <= 0.001 || debt.estado === 'pagada';
+                      const hasDebtPayments = payments.some((p) => p.deudaId === debt.id);
+
+                      return (
+                        <tr key={debt.id} className="group hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-lg bg-slate-100 text-sky-700 font-bold text-xs flex items-center justify-center shrink-0 border border-slate-200">
+                                {client ? `${client.nombres[0] || ''}${client.apellidos[0] || ''}`.toUpperCase() : 'CL'}
+                              </div>
+                              <div>
+                                <span className="font-semibold text-slate-900 block">
+                                  {client ? `${client.nombres} ${client.apellidos}` : debt.clienteId}
+                                </span>
+                                <span className="text-[11px] font-mono text-slate-400">
+                                  {client?.cedula || 'ID: ' + debt.clienteId}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 font-medium text-slate-800 whitespace-nowrap">
+                            <span className="capitalize font-semibold text-slate-900 block">
+                              {product?.nombre || debt.productoId}
+                            </span>
+                            <div className="flex flex-col gap-0.5 mt-0.5">
+                              <span className="text-[10px] text-slate-400 font-normal">Inscripción: {debt.fechaAdquisicion}</span>
+                              {debt.fechaCompromisoPago && (
+                                <span className="text-[10px] text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded font-semibold border border-sky-200 w-fit">
+                                  Compromiso: {debt.fechaCompromisoPago}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            {(() => {
+                              const dMethod =
+                                debt.metodoPago ||
+                                payments.find((p) => p.deudaId === debt.id)?.metodo ||
+                                'transferencia';
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  {dMethod === 'transferencia' && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                      <ArrowLeftRight className="w-3 h-3" />
+                                      Transferencia
+                                    </span>
+                                  )}
+                                  {dMethod === 'efectivo' && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      <Banknote className="w-3 h-3" />
+                                      Efectivo
+                                    </span>
+                                  )}
+                                  {dMethod === 'tarjeta' && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+                                      <CreditCard className="w-3 h-3" />
+                                      Tarjeta
+                                    </span>
+                                  )}
+                                  {dMethod === 'deposito' && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                      <Landmark className="w-3 h-3" />
+                                      Depósito
+                                    </span>
+                                  )}
+                                  {dMethod !== 'transferencia' && dMethod !== 'efectivo' && dMethod !== 'tarjeta' && dMethod !== 'deposito' && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 capitalize">
+                                      {dMethod}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </td>
+                          <td className="py-3 px-4 text-right font-bold text-slate-900 tabular-nums font-mono whitespace-nowrap">
+                            <div>${debt.precioAcordado.toFixed(2)}</div>
+                            {debt.precioNominalAplicado > debt.precioAcordado && (
+                              <div className="text-[10px] text-slate-400 font-normal line-through">
+                                ${debt.precioNominalAplicado.toFixed(2)}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right font-semibold text-emerald-700 tabular-nums font-mono whitespace-nowrap">
+                            ${(fin?.validPaymentsTotal || 0).toFixed(2)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-bold tabular-nums font-mono whitespace-nowrap">
+                            {(() => {
+                              const delay = getDebtDelayInfo(debt);
+                              return (
+                                <div className="flex flex-col items-end">
+                                  {!isPaid ? (
+                                    <span className={delay.isOverdue ? 'text-rose-700 font-extrabold' : 'text-amber-700'}>
+                                      ${(fin?.saldoPendiente || 0).toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-emerald-700 flex items-center gap-1 font-semibold">
+                                      <CheckCircle2 className="w-3.5 h-3.5" /> Pagado ($0.00)
+                                    </span>
+                                  )}
+
+                                  {delay.isOverdue && !isPaid && (
+                                    <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                                      <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                      {delay.daysDelayed}d retraso
+                                    </span>
+                                  )}
+                                  {debt.diaCorte && !isPaid && !delay.isOverdue && (
+                                    <span className="text-[10px] text-slate-400 block font-normal">
+                                      Corte: Día {debt.diaCorte}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            {(() => {
+                              const delay = getDebtDelayInfo(debt);
+                              const hasPendingPayment = payments.some(
+                                (p) =>
+                                  p.deudaId === debt.id &&
+                                  p.estadoRegistro !== 'anulado' &&
+                                  (p.estadoConciliacion === 'pendiente' || p.estadoConciliacion === 'revision_manual' || p.estadoConciliacion === 'con_diferencias')
+                              );
+                              const isEnComp = debt.estado === 'en_comprobacion' || (hasPendingPayment && !isPaid);
+
+                              if (debt.estado === 'anulada') {
+                                return (
+                                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-200">
+                                    Anulada
+                                  </span>
+                                );
+                              }
+                              if (isPaid || debt.estado === 'pagada') {
+                                return (
+                                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border bg-teal-50 text-teal-800 border-teal-300 flex items-center gap-1 w-fit">
+                                    <CheckCircle2 className="w-3 h-3 text-teal-700" />
+                                    Conciliado / Pagado
+                                  </span>
+                                );
+                              }
+                              if (isEnComp) {
+                                return (
+                                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border bg-amber-50 text-amber-900 border-amber-300 flex items-center gap-1 w-fit">
+                                    <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                    En Comprobación
+                                  </span>
+                                );
+                              }
+                              if (delay.isOverdue) {
+                                return (
+                                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border bg-rose-50 text-rose-800 border-rose-300 flex items-center gap-1 w-fit">
+                                    <Clock className="w-3 h-3 text-rose-600" />
+                                    Vencido ({delay.daysDelayed}d retraso)
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full border bg-sky-50 text-sky-800 border-sky-200">
+                                  Al Día
+                                </span>
+                              );
+                            })()}
+                          </td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {/* Botón Pagar (para deudas con saldo pendiente) */}
+                              {!isPaid && debt.estado !== 'anulada' && canPay && (
+                                <button
+                                  onClick={() => handleOpenPayModal(debt)}
+                                  className="px-2.5 py-1.5 bg-sky-50 hover:bg-sky-500 text-sky-700 hover:text-white border border-sky-200 hover:border-sky-500 rounded-lg text-xs font-semibold transition-all inline-flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                                  title="Registrar pago directo para esta deuda"
+                                >
+                                  <CreditCard className="w-3.5 h-3.5" />
+                                  <span>Pagar</span>
+                                </button>
+                              )}
+
+                              {/* Botón Factura (para deudas pagadas) */}
+                              {isPaid && (
+                                <button
+                                  onClick={() => {
+                                    setDebtForInvoice(debt);
+                                    setIsInvoiceModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 hover:border-emerald-600 rounded-lg text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                                  title="Ver factura oficial de esta deuda pagada"
+                                >
+                                  <FileText className="w-3.5 h-3.5" />
+                                  <span>Factura</span>
+                                </button>
+                              )}
+
+                              {/* Botón Historial de Pagos de la Deuda */}
+                              <button
+                                onClick={() => {
+                                  setDebtForHistory(debt);
+                                  setIsHistoryModalOpen(true);
+                                }}
+                                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all inline-flex items-center gap-1.5 border cursor-pointer ${
+                                  hasDebtPayments
+                                    ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-300'
+                                    : 'bg-slate-50/60 text-slate-400 border-slate-200 hover:text-slate-600'
+                                }`}
+                                title="Ver historial cronológico de pagos de esta adquisición"
+                              >
+                                <History className="w-3.5 h-3.5" />
+                                <span>Historial</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Custom Pagination (15, 20, 25) */}
+            <Pagination
+              currentPage={debtsCurrentPage}
+              totalPages={debtsTotalPages}
+              totalItems={filteredDebts.length}
+              pageSize={debtsPageSize}
+              pageSizeOptions={[15, 20, 25]}
+              onPageChange={setDebtsCurrentPage}
+              onPageSizeChange={setDebtsPageSize}
+              className="rounded-b-2xl"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 2: HISTÓRICO GENERAL Y REGISTRO DE PAGOS                              */}
+      {/* ========================================================================= */}
+      {activeTab === 'pagos' && (
+        <div className="space-y-4">
+          {/* Informative Rule Note */}
+          <div className="p-3.5 bg-slate-100 border border-slate-200 rounded-2xl text-xs text-slate-700 flex items-start gap-2.5">
+            <CreditCard className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div>
+              <strong>Histórico de Cobranzas y Pagos:</strong> Consulta la totalidad de pagos recibidos,
+              estados de conciliación bancaria y comprobantes adjuntos con trazabilidad en la bitácora.
+            </div>
+          </div>
+
+          {/* Filter Bar */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Buscar por alumno, cédula o No. transacción..."
+                value={paymentSearchQuery}
+                onChange={(e) => {
+                  setPaymentSearchQuery(e.target.value);
+                  setPaymentsCurrentPage(1);
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <CustomSelect
+                options={[
+                  { value: 'all', label: 'Todos los Métodos' },
+                  { value: 'transferencia', label: 'Transferencia' },
+                  { value: 'efectivo', label: 'Efectivo' },
+                  { value: 'tarjeta', label: 'Tarjeta' },
+                  { value: 'deposito', label: 'Depósito' },
+                ]}
+                value={paymentMethodFilter}
+                onChange={(val) => {
+                  setPaymentMethodFilter(val);
+                  setPaymentsCurrentPage(1);
+                }}
+                className="w-44"
+              />
+
+              <CustomSelect
+                options={[
+                  { value: 'all', label: 'Toda Conciliación' },
+                  { value: 'conciliado_auto', label: 'Conciliado Automático' },
+                  { value: 'conciliado_manual', label: 'Conciliado Manual' },
+                  { value: 'pendiente', label: 'Pendiente de Conciliar' },
+                  { value: 'con_diferencias', label: 'Con Diferencias' },
+                  { value: 'revision_manual', label: 'Revisión Manual' },
+                  { value: 'no_encontrado', label: 'No Encontrado en Banco' },
+                ]}
+                value={reconciliationFilter}
+                onChange={(val) => {
+                  setReconciliationFilter(val);
+                  setPaymentsCurrentPage(1);
+                }}
+                className="w-48"
+              />
+
+              <CustomSelect
+                options={[
+                  { value: 'all', label: 'Todos los Registros' },
+                  { value: 'registrado', label: 'Registrados Válidos' },
+                  { value: 'anulado', label: 'Anulados' },
+                ]}
+                value={paymentStatusFilter}
+                onChange={(val) => {
+                  setPaymentStatusFilter(val);
+                  setPaymentsCurrentPage(1);
+                }}
+                className="w-44"
+              />
+
+              {canPay && (
+                <button
+                  onClick={handleOpenTopLevelPayModal}
+                  className="px-3.5 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Nuevo Pago</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Payments Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-2xl">
+              <span className="text-xs text-slate-500 font-medium">
+                Mostrando <strong>{paginatedPayments.length}</strong> de <strong>{filteredPayments.length}</strong> pagos registrados
+              </span>
+              <span className="text-[11px] text-slate-400">
+                Los pagos anulados liberan saldo y quedan documentados en auditoría
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-400 font-semibold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-4">Fecha / ID</th>
+                    <th className="py-3 px-4">Alumno / Cédula</th>
+                    <th className="py-3 px-4">Monto ($)</th>
+                    <th className="py-3 px-4">Método / Banco</th>
+                    <th className="py-3 px-4">No. Transacción</th>
+                    <th className="py-3 px-4">Registro</th>
+                    <th className="py-3 px-4">Conciliación</th>
+                    <th className="py-3 px-4 text-right">Comprobante / Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {paginatedPayments.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-slate-400 italic">
+                        No se encontraron pagos con los criterios de búsqueda.
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedPayments.map((p) => {
+                      const client = clients.find((c) => c.id === p.clienteId);
+                      const isAnulado = p.estadoRegistro === 'anulado';
+
+                      return (
+                        <tr key={p.id} className={isAnulado ? 'bg-rose-50/40 text-slate-400' : 'hover:bg-slate-50'}>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span className="font-semibold text-slate-900 block">{p.fechaPago}</span>
+                            <span className="text-[10px] font-mono text-slate-400">{p.id}</span>
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span className="font-semibold text-slate-900 block">
+                              {client ? `${client.nombres} ${client.apellidos}` : p.clienteId}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-400">
+                              {client?.cedula || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap font-mono font-bold">
+                            <span className={isAnulado ? 'line-through text-slate-400' : 'text-emerald-700'}>
+                              ${p.monto.toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              {p.metodo === 'transferencia' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                  <ArrowLeftRight className="w-3 h-3" />
+                                  Transferencia
+                                </span>
+                              )}
+                              {p.metodo === 'efectivo' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <Banknote className="w-3 h-3" />
+                                  Efectivo
+                                </span>
+                              )}
+                              {p.metodo === 'tarjeta' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+                                  <CreditCard className="w-3 h-3" />
+                                  Tarjeta
+                                </span>
+                              )}
+                              {p.metodo === 'deposito' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                  <Landmark className="w-3 h-3" />
+                                  Depósito
+                                </span>
+                              )}
+                              {p.metodo !== 'transferencia' && p.metodo !== 'efectivo' && p.metodo !== 'tarjeta' && p.metodo !== 'deposito' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 capitalize">
+                                  {p.metodo}
+                                </span>
+                              )}
+                            </div>
+                            {p.bancoOrigen && (
+                              <span className="text-[10px] text-slate-400 block mt-0.5 font-medium">{p.bancoOrigen}</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap font-mono text-slate-700">
+                            {p.numeroTransaccion || 'S/N'}
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                isAnulado
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              }`}
+                            >
+                              {isAnulado ? 'Anulado' : 'Registrado'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                p.estadoConciliacion.includes('conciliado')
+                                  ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}
+                            >
+                              {p.estadoConciliacion.replace('_', ' ')}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {onViewVoucher && (
+                                <button
+                                  onClick={() => onViewVoucher(p)}
+                                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                                  title="Ver comprobante o voucher bancario"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>Voucher</span>
+                                </button>
+                              )}
+
+                              {!isAnulado && canApprove && (
+                                <button
+                                  onClick={() => {
+                                    setPaymentToCancel(p);
+                                    setCancelReason('');
+                                    setCancelError('');
+                                  }}
+                                  className="p-1 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                                  title="Anular pago y justificar en auditoría"
+                                >
+                                  <Ban className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Custom Pagination (15, 20, 25) */}
+            <Pagination
+              currentPage={paymentsCurrentPage}
+              totalPages={paymentsTotalPages}
+              totalItems={filteredPayments.length}
+              pageSize={paymentsPageSize}
+              pageSizeOptions={[15, 20, 25]}
+              onPageChange={setPaymentsCurrentPage}
+              onPageSizeChange={setPaymentsPageSize}
+              className="rounded-b-2xl"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: CREATE INDIVIDUAL DEBT ASSOCIATION / NUEVA VENTA --- */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-sky-500 text-white flex items-center justify-center shadow-xs">
+                  <Receipt className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    Nueva Venta (Inscripción / Adquisición de Programa)
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Configure el alumno, programa, plazos diferidos, corte mensual y abono inicial
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCreateModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleCreateSubmit} className="p-6 overflow-y-auto space-y-5 text-xs flex-1">
+              {formError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span className="font-medium">{formError}</span>
+                </div>
+              )}
+
+              {/* 2-Column Main Section: Client & Product Selection */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* 1. SELECCIONAR CLIENTE */}
+                <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="block font-bold text-slate-800 text-xs">
+                      1. Seleccionar Alumno / Cliente *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuickClient({ cedula: '', nombres: '', apellidos: '', telefono: '', correo: '' });
+                        setQuickClientError('');
+                        setIsQuickClientOpen(true);
+                      }}
+                      className="px-2.5 py-1 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Nuevo cliente</span>
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por nombre o cédula..."
+                      value={clientSearchText}
+                      onChange={(e) => {
+                        setClientSearchText(e.target.value);
+                        setSelectedClientId('');
+                      }}
+                      className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-slate-800 focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white">
+                    {clientCandidates.length === 0 ? (
+                      <div className="p-3 text-center text-slate-400 italic">
+                        No se encontraron alumnos con ese criterio
+                      </div>
+                    ) : (
+                      clientCandidates.map((c) => {
+                        const isSelected = selectedClientId === c.id;
+                        return (
+                          <div
+                            key={c.id}
+                            onClick={() => {
+                              setSelectedClientId(c.id);
+                              setClientSearchText(`${c.nombres} ${c.apellidos} (${c.cedula})`);
+                            }}
+                            className={`p-2.5 cursor-pointer flex items-center justify-between text-xs transition-colors ${
+                              isSelected ? 'bg-sky-50 font-bold text-slate-900' : 'hover:bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <div>
+                              <span className="font-semibold block">{c.nombres} {c.apellidos}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">Cédula: {c.cedula}</span>
+                            </div>
+                            {isSelected && <CheckCircle2 className="w-4 h-4 text-sky-600" />}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. PROGRAMA / PRODUCTO */}
+                <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-2">
+                  <label className="block font-bold text-slate-800 text-xs">
+                    2. Programa Educativo o Servicio *
+                  </label>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Buscar programa o digitar uno nuevo..."
+                      value={productSearchText}
+                      onChange={(e) => {
+                        setProductSearchText(e.target.value);
+                        const exact = products.find(
+                          (p) => p.nombre.toLowerCase() === e.target.value.toLowerCase()
+                        );
+                        if (exact) {
+                          setSelectedProductId(exact.id);
+                          setPrecioNominal(exact.precioNominal);
+                          if (!precioAcordado) setPrecioAcordado(exact.precioNominal.toString());
+                        } else {
+                          setSelectedProductId('');
+                        }
+                      }}
+                      className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-slate-800 focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white">
+                    {productCandidates.map((p) => {
+                      const isSelected = selectedProductId === p.id;
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => handleSelectProduct(p)}
+                          className={`p-2.5 cursor-pointer flex items-center justify-between text-xs transition-colors ${
+                            isSelected ? 'bg-sky-50 font-bold text-slate-900' : 'hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <div>
+                            <span className="font-semibold block">{p.nombre}</span>
+                            <span className="text-[10px] text-slate-400">Precio Lista: ${p.precioNominal.toFixed(2)}</span>
+                          </div>
+                          {isSelected && <CheckCircle2 className="w-4 h-4 text-sky-600" />}
+                        </div>
+                      );
+                    })}
+
+                    {productSearchText.trim() && productCandidates.length === 0 && (
+                      <div
+                        onClick={handleCreateNewProductOnTheFly}
+                        className="p-2.5 bg-sky-50 hover:bg-sky-100 text-slate-900 cursor-pointer flex items-center gap-2 transition-colors font-medium"
+                      >
+                        <Plus className="w-4 h-4 text-sky-600" />
+                        <span>
+                          Crear y asociar nuevo producto: <strong>"{productSearchText.trim()}"</strong>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Precios & Condiciones Económicas */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <label className="block font-semibold text-slate-500 mb-1 text-[11px]">
+                    Precio Nominal de Lista (Catálogo)
+                  </label>
+                  <div className="font-bold text-slate-700 text-base font-mono">
+                    ${precioNominal.toFixed(2)} USD
+                  </div>
+                  <span className="text-[10px] text-slate-400">
+                    Tarifa estándar configurada en el catálogo educativo
+                  </span>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-900 mb-1 text-xs">
+                    Precio Acordado Final de Venta ($) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    placeholder="790.00"
+                    value={precioAcordado}
+                    onChange={(e) => setPrecioAcordado(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 font-extrabold text-base font-mono focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-1 block">
+                    Monto total acordado con descuento o beca aplicada.
+                  </span>
+                </div>
+              </div>
+
+              {/* Fechas Estructuradas: Adquisición y Fecha de Compromiso de Pago */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <label className="block font-bold text-slate-900 mb-1 text-xs">
+                    Fecha de Adquisición / Inscripción *
+                  </label>
+                  <DatePicker
+                    required
+                    value={saleFechaAdquisicion}
+                    onChange={(val) => setSaleFechaAdquisicion(val)}
+                    className="w-full"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-1 block">
+                    Fecha formal de inicio o emisión del compromiso educativo.
+                  </span>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-900 mb-1 text-xs">
+                    Fecha de Compromiso de Pago (Cobranza)
+                  </label>
+                  <DatePicker
+                    value={saleFechaCompromisoPago}
+                    onChange={(val) => setSaleFechaCompromisoPago(val)}
+                    className="w-full"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-1 block">
+                    Fecha pactada con el alumno para el cumplimiento de su cuota.
+                  </span>
+                </div>
+              </div>
+
+              {/* SECCIÓN CONDICIONAL: ¿REQUIERE FINANCIAMIENTO / PLAZOS DE PAGO? */}
+              <div className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-2xs">
+                <label className="flex items-center justify-between p-3.5 bg-slate-50 hover:bg-slate-100/80 cursor-pointer transition-colors">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={saleRequiresFinancing}
+                      onChange={(e) => setSaleRequiresFinancing(e.target.checked)}
+                      className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 border-slate-300"
+                    />
+                    <div>
+                      <span className="font-bold text-slate-900 text-xs block">
+                        ¿Requiere financiamiento / Pago diferido en cuotas?
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        Habilitar para acordar meses a diferir, día de corte mensual y cronograma de cuotas
+                      </span>
+                    </div>
+                  </div>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                    saleRequiresFinancing
+                      ? 'bg-sky-50 text-sky-700 border-sky-200'
+                      : 'bg-slate-200 text-slate-600 border-slate-300'
+                  }`}>
+                    {saleRequiresFinancing ? 'Financiamiento Activo' : 'Pago de Contado / Directo'}
+                  </span>
+                </label>
+
+                {/* Si está marcado el check, se habilita el apartado de plazos y cronograma */}
+                {saleRequiresFinancing && (
+                  <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-sky-700" />
+                      <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide">
+                        Configuración de Cuotas, Meses a Diferir y Corte Mensual
+                      </h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Selector de Meses a Diferir */}
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1 text-xs">
+                          ¿A cuántos meses se difiere el pago? (Plazo de cuotas) *
+                        </label>
+                        <div className="grid grid-cols-5 gap-1.5">
+                          {[
+                            { meses: 1, label: '1 mes' },
+                            { meses: 3, label: '3 meses' },
+                            { meses: 6, label: '6 meses' },
+                            { meses: 9, label: '9 meses' },
+                            { meses: 12, label: '12 meses' },
+                          ].map((p) => {
+                            const isSelected = salePlazoMeses === p.meses;
+                            return (
+                              <button
+                                key={p.meses}
+                                type="button"
+                                onClick={() => setSalePlazoMeses(p.meses)}
+                                className={`py-2 px-1 rounded-xl text-center font-bold text-xs border transition-all ${
+                                  isSelected
+                                    ? 'bg-sky-500 text-white border-sky-600 shadow-xs'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                <span className="block text-sm">{p.meses}</span>
+                                <span className="text-[9px] font-normal block leading-tight">Meses</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Selector de Día de Corte de Cada Mes */}
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1 text-xs">
+                          ¿Qué día de cada mes se genera el corte / fecha límite? *
+                        </label>
+                        <div className="grid grid-cols-6 gap-1.5">
+                          {[5, 10, 15, 20, 25, 30].map((dia) => {
+                            const isSelected = saleDiaCorte === dia;
+                            return (
+                              <button
+                                key={dia}
+                                type="button"
+                                onClick={() => setSaleDiaCorte(dia)}
+                                className={`py-2 px-1 rounded-xl text-center font-bold text-xs border transition-all ${
+                                  isSelected
+                                    ? 'bg-sky-500 text-white border-sky-600 shadow-xs'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                <span className="block text-sm">Día {dia}</span>
+                                <span className="text-[9px] font-normal block text-slate-400 leading-tight">de corte</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Vista previa proyectada de cuotas */}
+                    {(() => {
+                      const acordadoNum = parseFloat(precioAcordado) || 0;
+                      const meses = Math.max(1, salePlazoMeses || 1);
+                      const cuotaValor = parseFloat((acordadoNum / meses).toFixed(2));
+                      const baseDate = new Date();
+
+                      return (
+                        <div className="p-3 bg-white/90 rounded-xl border border-slate-200 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-800 text-[11px] flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-sky-600" />
+                              Cronograma Proyectado de Cuotas ({meses} cuota{meses > 1 ? 's' : ''} de ~${cuotaValor.toFixed(2)})
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              Corte mensual: <strong>Día {saleDiaCorte}</strong> de cada mes
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 pt-1">
+                            {Array.from({ length: meses }).map((_, idx) => {
+                              const num = idx + 1;
+                              const dueDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + num, saleDiaCorte);
+                              const formattedDate = dueDate.toISOString().slice(0, 10);
+                              const isLast = num === meses;
+                              const installmentAmount = isLast ? (acordadoNum - cuotaValor * (meses - 1)) : cuotaValor;
+
+                              return (
+                                <div key={num} className="p-2 bg-slate-50 rounded-lg border border-slate-200 text-center">
+                                  <span className="text-[10px] font-bold text-slate-900 block">Cuota #{num}</span>
+                                  <span className="font-extrabold text-slate-900 font-mono text-xs block">
+                                    ${installmentAmount > 0 ? installmentAmount.toFixed(2) : '0.00'}
+                                  </span>
+                                  <span className="text-[9px] text-slate-500 block font-mono">{formattedDate}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {/* Selector de Tipo de Pago para la Venta */}
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Tipo / Método de Pago Acordado *
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSalePaymentMethod('transferencia');
+                      setSaleBankOrEntity('Banco Pichincha');
+                    }}
+                    className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all ${
+                      salePaymentMethod === 'transferencia'
+                        ? 'bg-blue-50 text-blue-700 border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <ArrowLeftRight className="w-4 h-4 text-blue-600" />
+                    <span>Transferencia</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSalePaymentMethod('efectivo');
+                      setSaleBankOrEntity('Caja Principal (Campus Matriz)');
+                    }}
+                    className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all ${
+                      salePaymentMethod === 'efectivo'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-400 ring-2 ring-emerald-500/20 shadow-xs'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Banknote className="w-4 h-4 text-emerald-600" />
+                    <span>Efectivo</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSalePaymentMethod('tarjeta');
+                      setSaleBankOrEntity('Visa (Datafast)');
+                    }}
+                    className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all ${
+                      salePaymentMethod === 'tarjeta'
+                        ? 'bg-sky-50 text-sky-700 border-sky-400 ring-2 ring-sky-500/20 shadow-xs'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <CreditCard className="w-4 h-4 text-sky-600" />
+                    <span>Tarjeta</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSalePaymentMethod('deposito');
+                      setSaleBankOrEntity('Banco Pichincha');
+                    }}
+                    className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all ${
+                      salePaymentMethod === 'deposito'
+                        ? 'bg-amber-50 text-amber-700 border-amber-400 ring-2 ring-amber-500/20 shadow-xs'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Landmark className="w-4 h-4 text-amber-600" />
+                    <span>Depósito</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Entidad / Caja / Red y Checkbox de Abono Inicial */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1 text-[11px]">
+                    {salePaymentMethod === 'efectivo'
+                      ? 'Punto de Cobro / Caja'
+                      : salePaymentMethod === 'tarjeta'
+                      ? 'Red / Terminal de Cobro'
+                      : 'Banco / Entidad Financiera'}
+                  </label>
+                  <CustomSelect
+                    options={
+                      salePaymentMethod === 'efectivo'
+                        ? [
+                            { value: 'Caja Principal (Campus Matriz)', label: 'Caja Principal (Campus Matriz)' },
+                            { value: 'Caja Ventanilla 1', label: 'Caja Ventanilla 1' },
+                            { value: 'Caja Campus Norte', label: 'Caja Campus Norte' },
+                            { value: 'Caja Campus Sur', label: 'Caja Campus Sur' },
+                          ]
+                        : salePaymentMethod === 'tarjeta'
+                        ? [
+                            { value: 'Visa (Datafast)', label: 'Visa (Datafast)' },
+                            { value: 'Mastercard (Datafast)', label: 'Mastercard (Datafast)' },
+                            { value: 'Visa (Medianet)', label: 'Visa (Medianet)' },
+                            { value: 'Mastercard (Medianet)', label: 'Mastercard (Medianet)' },
+                            { value: 'Diners Club', label: 'Diners Club' },
+                            { value: 'Tarjeta Débito (Datafast)', label: 'Tarjeta Débito (Datafast)' },
+                          ]
+                        : [
+                            { value: 'Banco Pichincha', label: 'Banco Pichincha' },
+                            { value: 'Banco Guayaquil', label: 'Banco Guayaquil' },
+                            { value: 'Produbanco', label: 'Produbanco' },
+                            { value: 'Banco del Pacífico', label: 'Banco del Pacífico' },
+                            { value: 'Banco Internacional', label: 'Banco Internacional' },
+                            { value: 'Cooperativa JEP', label: 'Cooperativa JEP' },
+                          ]
+                    }
+                    value={saleBankOrEntity}
+                    onChange={setSaleBankOrEntity}
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="flex flex-col justify-end">
+                  <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors text-xs font-semibold text-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={saleRegisterInitialPayment}
+                      onChange={(e) => {
+                        setSaleRegisterInitialPayment(e.target.checked);
+                        if (e.target.checked && !saleInitialPayAmount) {
+                          const acordadoNum = parseFloat(precioAcordado) || 0;
+                          const meses = Math.max(1, salePlazoMeses || 1);
+                          const suggested = (acordadoNum / meses).toFixed(2);
+                          setSaleInitialPayAmount(suggested !== '0.00' ? suggested : '150');
+                        }
+                      }}
+                      className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 border-slate-300"
+                    />
+                    <span>¿Registrar abono o cuota inicial ahora mismo?</span>
+                  </label>
+                </div>
+              </div>
+
+              {saleRegisterInitialPayment && (
+                <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-3">
+                  <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>Datos del Abono / Primera Cuota Inmediata</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block font-semibold text-emerald-900 mb-1 text-[11px]">
+                        Monto del Abono Inicial ($) *
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        placeholder="Ej: 150.00"
+                        value={saleInitialPayAmount}
+                        onChange={(e) => setSaleInitialPayAmount(e.target.value)}
+                        className="w-full bg-white border border-emerald-300 rounded-lg px-2.5 py-2 text-slate-900 font-bold font-mono focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-emerald-900 mb-1 text-[11px]">
+                        {salePaymentMethod === 'efectivo'
+                          ? 'N° Recibo de Caja'
+                          : salePaymentMethod === 'tarjeta'
+                          ? 'N° Voucher / Autorización'
+                          : 'N° Transacción / Comprobante'}
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={
+                          salePaymentMethod === 'efectivo'
+                            ? 'Ej: REC-00421'
+                            : salePaymentMethod === 'tarjeta'
+                            ? 'Ej: AUTH-882190'
+                            : 'Ej: TX-984120'
+                        }
+                        value={saleInitialTxNumber}
+                        onChange={(e) => setSaleInitialTxNumber(e.target.value)}
+                        className="w-full bg-white border border-emerald-300 rounded-lg px-2.5 py-2 font-mono text-slate-900 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block font-semibold text-emerald-900 text-[11px]">
+                      Comprobante de pago (imagen o PDF)
+                    </label>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label
+                        className="cursor-pointer px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-2xs"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{saleVoucherFileName ? 'Cambiar comprobante' : 'Subir comprobante'}</span>
+                        <input
+                          type="file"
+                          accept="image/*,.pdf"
+                          className="hidden"
+                          onChange={handleSaleVoucherUpload}
+                        />
+                      </label>
+                    </div>
+
+                    {saleVoucherFileName && (
+                      <div className="space-y-2 mt-2">
+                        <div className="flex items-center justify-between p-2.5 bg-white border border-emerald-200 rounded-lg text-xs text-slate-700 shadow-2xs">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span className="truncate font-medium">{saleVoucherFileName}</span>
+                            <span className="text-[10px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-bold">
+                              Adjunto
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSaleVoucherFileName(null);
+                              setSaleVoucherFile(null);
+                              setSaleVoucherPreviewUrl(null);
+                            }}
+                            className="text-slate-400 hover:text-rose-600 text-xs ml-2 p-1 rounded-md transition-colors inline-flex items-center"
+                            title="Quitar archivo"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {saleVoucherPreviewUrl ? (
+                          <div className="p-2.5 bg-slate-900/5 rounded-xl border border-emerald-200 flex flex-col items-center">
+                            <img
+                              src={saleVoucherPreviewUrl}
+                              alt="Vista previa del comprobante inicial"
+                              className="max-h-44 w-auto object-contain rounded-lg shadow-xs border border-emerald-300/40 bg-white"
+                            />
+                            <span className="text-[10px] text-emerald-800 font-medium mt-1.5 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              Vista previa del comprobante cargado
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="p-3 bg-white border border-emerald-200 rounded-lg text-center text-xs text-emerald-800 font-medium flex items-center justify-center gap-2">
+                            <FileText className="w-4 h-4 text-emerald-600" />
+                            <span>Documento PDF adjunto y listo para validación</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Observaciones / Motivo de Tarifa o Beca
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Ej: Beca aprobada por dirección académica, descuento por pronto pago, pago diferido a corte mensual..."
+                  value={observaciones}
+                  onChange={(e) => setObservaciones(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:bg-white focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-[11px] text-slate-400">
+                  La venta creará la cuenta por cobrar y el cronograma de cuotas correspondientes.
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateModalOpen(false)}
+                    className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-100"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-semibold transition-colors shadow-xs"
+                  >
+                    Guardar Nueva Venta
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: CREAR CLIENTE RAPIDO DESDE NUEVA VENTA --- */}
+      {isQuickClientOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <h2 className="text-sm font-bold text-slate-900">Registrar Nuevo Cliente</h2>
+              <button
+                type="button"
+                onClick={() => setIsQuickClientOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleQuickClientSubmit} className="p-5 space-y-3.5 text-xs">
+              {quickClientError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{quickClientError}</span>
+                </div>
+              )}
+              {([
+                ['cedula', 'Cédula / Identificación * (10 dígitos)', 'Ej: 1712345678'],
+                ['nombres', 'Nombres * (solo letras)', 'Ej: María José'],
+                ['apellidos', 'Apellidos * (solo letras)', 'Ej: Pérez Andrade'],
+                ['telefono', 'Teléfono', 'Ej: +593 99 123 4567'],
+                ['correo', 'Correo electrónico', 'Ej: alumno@correo.com'],
+              ] as const).map(([key, label, placeholder]) => (
+                <div key={key}>
+                  <label className="block font-semibold text-slate-700 mb-1">{label}</label>
+                  <input
+                    type="text"
+                    maxLength={key === 'cedula' ? 10 : key === 'telefono' ? 15 : undefined}
+                    placeholder={placeholder}
+                    value={quickClient[key]}
+                    onChange={(e) => {
+                      let val = e.target.value;
+                      if (key === 'cedula') {
+                        val = val.replace(/\D/g, '').slice(0, 10);
+                      } else if (key === 'nombres' || key === 'apellidos') {
+                        val = val.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, '');
+                      } else if (key === 'telefono') {
+                        val = val.replace(/[^\d+\s-]/g, '').slice(0, 15);
+                      }
+                      setQuickClient({ ...quickClient, [key]: val });
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:bg-white focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+              ))}
+              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsQuickClientOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-semibold"
+                >
+                  Registrar Cliente
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: REGISTRO DE PAGO INTEGRADO EN DEUDAS Y ADQUISICIONES --- */}
+      {isPayModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-[#16202E] text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/15 backdrop-blur-xs flex items-center justify-center border border-white/20 shadow-xs">
+                  <CreditCard className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">
+                    Registrar Pago de Deuda (Módulo de Cobranzas)
+                  </h2>
+                  <p className="text-[11px] text-slate-300">
+                    Registre el abono o cancelación total del alumno con conciliación bancaria inmediata
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsPayModalOpen(false)}
+                className="p-1.5 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: Horizontal 2-Column Layout */}
+            <form onSubmit={handleRegisterPaymentSubmit} className="p-6 overflow-y-auto space-y-4 text-xs flex-1">
+              {paySuccessMsg && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{paySuccessMsg}</span>
+                </div>
+              )}
+
+              {payError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span className="font-semibold">{payError}</span>
+                </div>
+              )}
+
+              {/* Panel Contenedor Unificado con 2 Columnas Estructuradas */}
+              <div className="bg-slate-50/70 p-5 rounded-2xl border border-slate-200 space-y-5">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+                  
+                  {/* COLUMNA IZQUIERDA: Contexto de Cuenta por Cobrar y Asistente OCR */}
+                  <div className="space-y-4">
+                    {/* Selector o Ficha del Alumno y Deuda */}
+                    {!debtToPay ? (
+                      <div className="space-y-3 p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1 text-xs">
+                            1. Buscar y Seleccionar Alumno *
+                          </label>
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder="Buscar alumno por nombre o cédula..."
+                              value={payModalClientSearch}
+                              onChange={(e) => setPayModalClientSearch(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:bg-white"
+                            />
+                          </div>
+
+                          <div className="mt-1.5 max-h-32 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white">
+                            {payModalClientCandidates.map((c) => (
+                              <div
+                                key={c.id}
+                                onClick={() => {
+                                  setPayModalClientId(c.id);
+                                  setPayModalClientSearch(`${c.nombres} ${c.apellidos}`);
+                                  const clientDebts = debts.filter(
+                                    (d) => d.clienteId === c.id && d.estado !== 'anulada'
+                                  );
+                                  setPayModalDebtId(clientDebts[0]?.id || '');
+                                  const fin = clientDebts[0] ? getDebtFinancials(clientDebts[0].id) : null;
+                                  if (fin) setPayAmount(fin.saldoPendiente.toFixed(2));
+                                }}
+                                className={`p-2 px-3 cursor-pointer flex justify-between text-xs transition-colors ${
+                                  payModalClientId === c.id
+                                    ? 'bg-sky-50 font-bold text-slate-900'
+                                    : 'hover:bg-slate-50 text-slate-700'
+                                }`}
+                              >
+                                <span>{c.nombres} {c.apellidos}</span>
+                                <span className="font-mono text-[10px] text-slate-400">{c.cedula}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1 text-xs">
+                            2. Deuda / Adquisición con Saldo Pendiente *
+                          </label>
+                          {debtsForSelectedPayClient.length === 0 ? (
+                            <div className="p-2.5 text-slate-400 italic bg-slate-50 border border-slate-200 rounded-xl text-center">
+                              El alumno no registra deudas con saldo pendiente
+                            </div>
+                          ) : (
+                            <CustomSelect
+                              options={debtsForSelectedPayClient.map((d) => {
+                                const pr = products.find((p) => p.id === d.productoId);
+                                const fin = getDebtFinancials(d.id);
+                                return {
+                                  value: d.id,
+                                  label: `${pr?.nombre || d.productoId} (Saldo: $${fin?.saldoPendiente.toFixed(2) || '0.00'})`,
+                                  badge: d.estado,
+                                };
+                              })}
+                              value={payModalDebtId}
+                              onChange={(val) => {
+                                setPayModalDebtId(val);
+                                const fin = getDebtFinancials(val);
+                                if (fin) setPayAmount(fin.saldoPendiente.toFixed(2));
+                              }}
+                              className="w-full"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      /* Ficha informativa cuando se pulsó 'Pagar' directamente en una fila */
+                      (() => {
+                        const fin = getDebtFinancials(debtToPay.id);
+                        const cl = clients.find((c) => c.id === debtToPay.clienteId);
+                        const pr = products.find((p) => p.id === debtToPay.productoId);
+                        return (
+                          <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-2xs space-y-3">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">
+                                  Cuenta por Cobrar
+                                </span>
+                                <h3 className="font-bold text-slate-900 text-sm">
+                                  {cl ? `${cl.nombres} ${cl.apellidos}` : debtToPay.clienteId}
+                                </h3>
+                                <span className="font-mono text-sky-700 text-xs">C.I: {cl?.cedula}</span>
+                              </div>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 uppercase">
+                                ID: {debtToPay.id}
+                              </span>
+                            </div>
+
+                            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1.5 text-xs">
+                              <div className="flex justify-between text-slate-600">
+                                <span>Programa Adquirido:</span>
+                                <strong className="text-slate-900 truncate max-w-[200px]">{pr?.nombre || debtToPay.productoId}</strong>
+                              </div>
+                              <div className="flex justify-between text-slate-600">
+                                <span>Precio Acordado Total:</span>
+                                <span className="font-mono font-bold text-slate-900">${debtToPay.precioAcordado.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                                <span className="text-emerald-700 font-semibold">Total Ya Abonado:</span>
+                                <span className="font-mono font-bold text-emerald-700">
+                                  ${fin?.validPaymentsTotal.toFixed(2) || '0.00'}
+                                </span>
+                              </div>
+                              <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                                <span className="text-amber-800 font-bold">Saldo Pendiente Actual:</span>
+                                <span className="font-mono font-black text-sm text-amber-700">
+                                  ${fin?.saldoPendiente.toFixed(2) || '0.00'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {debtToPay.diaCorte && (
+                              <div className="text-[11px] text-slate-500 flex items-center justify-between px-1">
+                                <span>Día de Corte Mensual: <strong>Día {debtToPay.diaCorte}</strong></span>
+                                <span>Plazo: <strong>{debtToPay.plazoMeses ? `${debtToPay.plazoMeses} meses` : 'Directo'}</strong></span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()
+                    )}
+
+                    {/* Adjuntar Comprobante de Pago (Manual, SIN OCR) */}
+                    <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-2xs space-y-3">
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-sky-600 shrink-0" />
+                          <span className="text-xs text-slate-900 font-bold">
+                            Comprobante de Pago (Voucher / Recibo)
+                          </span>
+                        </div>
+                        <label
+                          className="cursor-pointer px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors shrink-0 shadow-2xs inline-flex items-center gap-1.5"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>{payUploadedFileName ? 'Cambiar Archivo' : 'Adjuntar Voucher (PDF / Img)'}</span>
+                          <input
+                            type="file"
+                            accept="image/*,.pdf"
+                            className="hidden"
+                            onChange={handleVoucherFileUpload}
+                          />
+                        </label>
+                      </div>
+
+                      <p className="text-[11px] text-slate-500">
+                        Adjunte el comprobante digital de la transacción. Los datos del banco, transacción, monto y fecha se capturan de forma manual a continuación.
+                      </p>
+
+                      {/* Estado del archivo cargado */}
+                      {payUploadedFileName ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="w-4 h-4 text-sky-600 shrink-0" />
+                              <span className="truncate font-medium">{payUploadedFileName}</span>
+                              <span className="text-[10px] text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-bold">
+                                Adjunto
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPayUploadedFileName(null);
+                                setPayUploadedFile(null);
+                                setPayFilePreviewUrl(null);
+                              }}
+                              className="text-slate-400 hover:text-rose-600 text-xs ml-2 p-1 rounded-md transition-colors inline-flex items-center"
+                              title="Quitar archivo"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          {payFilePreviewUrl ? (
+                            <div className="p-2 bg-slate-100 rounded-xl border border-slate-200 flex flex-col items-center">
+                              <img
+                                src={payFilePreviewUrl}
+                                alt="Vista previa del comprobante"
+                                className="max-h-36 w-auto object-contain rounded-lg shadow-xs"
+                              />
+                              <span className="text-[10px] text-slate-500 mt-1">
+                                Vista previa del váucher adjunto
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-center text-xs text-slate-600">
+                              Documento PDF adjunto correctamente listo para auditoría.
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-slate-400 text-xs">
+                          Ningún archivo seleccionado.
+                        </div>
+                      )}
+
+                      <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg text-[11px] text-amber-900 flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Control de Conciliación:</strong> Al guardar, este registro pasa a estado <strong>En Comprobación</strong>. La deuda no se extingue hasta la validación con el extracto bancario.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* COLUMNA DERECHA: Datos del Pago, Método y Parámetros Bancarios */}
+                  <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-2xs space-y-4">
+                    <div className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-2.5">
+                      <Receipt className="w-4 h-4 text-sky-600" />
+                      <span>Detalles Económicos y Financieros</span>
+                    </div>
+
+                    {/* Fila 1: Monto y Fecha */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-900 mb-1 text-xs">
+                          Monto a Pagar ($) *
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          required
+                          value={payAmount}
+                          onChange={(e) => setPayAmount(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-900 font-extrabold text-base font-mono focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 focus:bg-white focus:outline-none shadow-2xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1 text-xs">
+                          Fecha Efectiva de Pago *
+                        </label>
+                        <DatePicker
+                          required
+                          value={payDate}
+                          onChange={(date) => setPayDate(date)}
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Fila 2: Selector Horizontal de Método de Pago */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1 text-xs">
+                        Método / Forma de Pago *
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handlePayMethodChange('transferencia')}
+                          className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all ${
+                            payMethod === 'transferencia'
+                              ? 'bg-blue-50 text-blue-700 border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-white'
+                          }`}
+                        >
+                          <ArrowLeftRight className="w-4 h-4 text-blue-600" />
+                          <span>Transferencia</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePayMethodChange('efectivo')}
+                          className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all ${
+                            payMethod === 'efectivo'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-400 ring-2 ring-emerald-500/20 shadow-xs'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-white'
+                          }`}
+                        >
+                          <Banknote className="w-4 h-4 text-emerald-600" />
+                          <span>Efectivo</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePayMethodChange('tarjeta')}
+                          className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all ${
+                            payMethod === 'tarjeta'
+                              ? 'bg-sky-50 text-sky-700 border-sky-400 ring-2 ring-sky-500/20 shadow-xs'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-white'
+                          }`}
+                        >
+                          <CreditCard className="w-4 h-4 text-sky-600" />
+                          <span>Tarjeta</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePayMethodChange('deposito')}
+                          className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all ${
+                            payMethod === 'deposito'
+                              ? 'bg-amber-50 text-amber-700 border-amber-400 ring-2 ring-amber-500/20 shadow-xs'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-white'
+                          }`}
+                        >
+                          <Landmark className="w-4 h-4 text-amber-600" />
+                          <span>Depósito</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Fila 3: Entidad Bancaria / Punto de Cobro y N° Transacción */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1 text-xs">
+                          {payMethod === 'efectivo'
+                            ? 'Caja / Punto de Cobro'
+                            : payMethod === 'tarjeta'
+                            ? 'Red / Terminal'
+                            : 'Banco Origen / Entidad'}
+                        </label>
+                        <CustomSelect
+                          options={
+                            payMethod === 'efectivo'
+                              ? [
+                                  { value: 'Caja Principal (Campus Matriz)', label: 'Caja Principal (Campus Matriz)' },
+                                  { value: 'Caja Ventanilla 1', label: 'Caja Ventanilla 1' },
+                                  { value: 'Caja Campus Norte', label: 'Caja Campus Norte' },
+                                  { value: 'Caja Campus Sur', label: 'Caja Campus Sur' },
+                                ]
+                              : payMethod === 'tarjeta'
+                              ? [
+                                  { value: 'Visa (Datafast)', label: 'Visa (Datafast)' },
+                                  { value: 'Mastercard (Datafast)', label: 'Mastercard (Datafast)' },
+                                  { value: 'Visa (Medianet)', label: 'Visa (Medianet)' },
+                                  { value: 'Mastercard (Medianet)', label: 'Mastercard (Medianet)' },
+                                  { value: 'Diners Club', label: 'Diners Club' },
+                                  { value: 'American Express', label: 'American Express' },
+                                  { value: 'Tarjeta Débito (Datafast)', label: 'Tarjeta Débito (Datafast)' },
+                                ]
+                              : [
+                                  { value: 'Banco Pichincha', label: 'Banco Pichincha' },
+                                  { value: 'Banco Guayaquil', label: 'Banco Guayaquil' },
+                                  { value: 'Banco del Pacífico', label: 'Banco del Pacífico' },
+                                  { value: 'Produbanco', label: 'Produbanco' },
+                                  { value: 'Banco Internacional', label: 'Banco Internacional' },
+                                  { value: 'Cooperativa JEP', label: 'Cooperativa JEP' },
+                                  { value: 'PayPal', label: 'PayPal' },
+                                  { value: 'PayPhone', label: 'PayPhone' },
+                                ]
+                          }
+                          value={payBank}
+                          onChange={setPayBank}
+                          className="w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1 text-xs">
+                          {payMethod === 'efectivo'
+                            ? 'N° Recibo de Caja'
+                            : payMethod === 'tarjeta'
+                            ? 'N° Autorización / Lote'
+                            : payMethod === 'deposito'
+                            ? 'N° Papeleta de Depósito'
+                            : 'N° Transacción / Comprobante'}
+                        </label>
+                        <input
+                          type="text"
+                          placeholder={
+                            payMethod === 'efectivo'
+                              ? 'Ej: REC-00421'
+                              : payMethod === 'tarjeta'
+                              ? 'Ej: AUTH-882190'
+                              : payMethod === 'deposito'
+                              ? 'Ej: DEP-451208'
+                              : 'Ej: TX-984120'
+                          }
+                          value={payTxNumber}
+                          onChange={(e) => setPayTxNumber(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono text-slate-800 focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 focus:bg-white focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Fila 4: Referencia Adicional */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1 text-xs">
+                        Referencia o Glosa Bancaria
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej: Matrícula cuota 1 / Depósito referencia..."
+                        value={payRef}
+                        onChange={(e) => setPayRef(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 focus:bg-white focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fila Inferior Completa: Observaciones / Justificación Contable */}
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+                  <label className="block font-semibold text-slate-700 mb-1 text-xs">
+                    Observaciones / Justificación Contable <span className="font-normal text-slate-400">(Opcional)</span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Ej: Pago realizado por ventanilla, comprobante validado y cotejado con estado de cuenta..."
+                    value={payNotes}
+                    onChange={(e) => setPayNotes(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 text-xs focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 focus:bg-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-[11px] text-slate-400">
+                  El pago ingresará automáticamente a la bitácora de auditoría y conciliación.
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsPayModalOpen(false)}
+                    className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-100"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-semibold transition-colors flex items-center gap-2 shadow-xs"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span>Confirmar y Registrar Pago</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: HISTORIAL DE PAGOS DE LA DEUDA --- */}
+      {isHistoryModalOpen && debtForHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-sky-600" />
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900">
+                    Historial de Pagos y Trazabilidad de la Deuda
+                  </h2>
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    ID Deuda: {debtForHistory.id}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsHistoryModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              {(() => {
+                const fin = getDebtFinancials(debtForHistory.id);
+                const cl = clients.find((c) => c.id === debtForHistory.clienteId);
+                const pr = products.find((p) => p.id === debtForHistory.productoId);
+                const isPaid = (fin?.saldoPendiente || 0) <= 0.001;
+                const delay = getDebtDelayInfo(debtForHistory);
+
+                return (
+                  <div className="space-y-3">
+                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold block">Alumno</span>
+                        <span className="font-bold text-slate-900 text-sm">
+                          {cl ? `${cl.nombres} ${cl.apellidos}` : debtForHistory.clienteId}
+                        </span>
+                        <span className="text-slate-500 block text-[11px] font-mono">C.I: {cl?.cedula}</span>
+                      </div>
+
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold block">Programa</span>
+                        <span className="font-semibold text-slate-800">{pr?.nombre || debtForHistory.productoId}</span>
+                        <span className="text-slate-500 block text-[11px]">Acordado: ${debtForHistory.precioAcordado.toFixed(2)}</span>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold block">Saldo Actual</span>
+                        {isPaid ? (
+                          <span className="font-bold text-emerald-700 text-sm flex items-center justify-end gap-1">
+                            <CheckCircle2 className="w-4 h-4" /> Pagado ($0.00)
+                          </span>
+                        ) : (
+                          <span className={`text-sm font-bold ${delay.isOverdue ? 'text-rose-700 font-extrabold' : 'text-amber-700'}`}>
+                            ${fin?.saldoPendiente.toFixed(2)}
+                          </span>
+                        )}
+                        <span className="text-emerald-700 font-semibold block text-[11px]">
+                          Abonado: ${fin?.validPaymentsTotal.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Términos de Pago & Retrasos */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                      <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                        <span className="text-slate-900 font-bold block">Plazo Diferido</span>
+                        <span className="text-slate-700 font-medium">
+                          {debtForHistory.plazoMeses ? `${debtForHistory.plazoMeses} Meses diferidos` : 'No especificado (Directo)'}
+                        </span>
+                      </div>
+                      <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                        <span className="text-slate-900 font-bold block">Día de Corte Mensual</span>
+                        <span className="text-slate-700 font-medium">
+                          {debtForHistory.diaCorte ? `Día ${debtForHistory.diaCorte} de cada mes` : 'Fecha de vencimiento estándar'}
+                        </span>
+                      </div>
+                      <div className={`p-2.5 rounded-xl border ${
+                        delay.isOverdue && !isPaid
+                          ? 'bg-rose-50 border-rose-200 text-rose-900'
+                          : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      }`}>
+                        <span className="font-bold block">Estado de Cobranza</span>
+                        <span className="font-semibold flex items-center gap-1">
+                          {delay.isOverdue && !isPaid ? (
+                            <>
+                              <AlertOctagon className="w-3.5 h-3.5 text-rose-600" />
+                              {delay.daysDelayed} días en retraso
+                            </>
+                          ) : isPaid ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              Al día (Totalmente pagada)
+                            </>
+                          ) : (
+                            <>
+                              <Clock className="w-3.5 h-3.5 text-sky-600" />
+                              Al corriente / Dentro del plazo
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Desglose de Cuotas si existen */}
+                    {debtForHistory.cuotas && debtForHistory.cuotas.length > 0 && (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden">
+                        <div className="p-2 bg-slate-50 border-b border-slate-200 font-bold text-slate-800 text-[11px] flex justify-between items-center">
+                          <span>Cronograma de Cuotas Acordadas</span>
+                          <span className="text-slate-400 font-normal">Corte: Día {debtForHistory.diaCorte}</span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 p-2.5 bg-white">
+                          {debtForHistory.cuotas.map((c) => {
+                            const isVencida = c.fechaVencimiento < todayStr && !isPaid;
+                            return (
+                              <div
+                                key={c.numero}
+                                className={`p-2 rounded-lg border text-center ${
+                                  isPaid
+                                    ? 'bg-emerald-50/50 border-emerald-200'
+                                    : isVencida
+                                    ? 'bg-rose-50 border-rose-300'
+                                    : 'bg-slate-50 border-slate-200'
+                                }`}
+                              >
+                                <div className="text-[10px] font-bold text-slate-700">Cuota #{c.numero}</div>
+                                <div className="font-mono font-extrabold text-xs text-slate-900">
+                                  ${c.monto.toFixed(2)}
+                                </div>
+                                <div className="text-[9px] font-mono text-slate-500">{c.fechaVencimiento}</div>
+                                <div className="mt-1">
+                                  <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${
+                                    isPaid
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : isVencida
+                                      ? 'bg-rose-200 text-rose-900'
+                                      : 'bg-slate-200 text-slate-700'
+                                  }`}>
+                                    {isPaid ? 'Cubierta' : isVencida ? 'Vencida' : 'Pendiente'}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div>
+                <h3 className="font-bold text-slate-800 mb-2 flex items-center justify-between">
+                  <span>Listado Cronológico de Pagos Registrados</span>
+                  <span className="text-[11px] text-slate-400 font-normal">
+                    Reflejados automáticamente en la bitácora de auditoría
+                  </span>
+                </h3>
+
+                {(() => {
+                  const debtPayments = payments.filter((p) => p.deudaId === debtForHistory.id);
+
+                  if (debtPayments.length === 0) {
+                    return (
+                      <div className="text-center py-8 border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50">
+                        <CreditCard className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                        <p className="font-semibold text-slate-700">No hay pagos registrados aún para esta deuda</p>
+                        <p className="text-slate-400 text-[11px] mt-0.5">
+                          Puedes registrar el primer pago con el botón directo de pago.
+                        </p>
+                        {canPay && (
+                          <button
+                            onClick={() => {
+                              setIsHistoryModalOpen(false);
+                              handleOpenPayModal(debtForHistory);
+                            }}
+                            className="mt-3 px-3.5 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs"
+                          >
+                            <CreditCard className="w-3.5 h-3.5" />
+                            <span>Registrar Primer Pago</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
+                          <tr>
+                            <th className="p-2.5">Fecha</th>
+                            <th className="p-2.5">Monto</th>
+                            <th className="p-2.5">Método / Banco</th>
+                            <th className="p-2.5">N° Transacción</th>
+                            <th className="p-2.5">Estado Registro</th>
+                            <th className="p-2.5">Conciliación</th>
+                            <th className="p-2.5 text-right">Comprobante</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {debtPayments.map((p) => {
+                            const isAnulado = p.estadoRegistro === 'anulado';
+                            return (
+                              <tr key={p.id} className={isAnulado ? 'bg-rose-50/50 text-slate-400' : 'hover:bg-slate-50'}>
+                                <td className="p-2.5 font-medium whitespace-nowrap">{p.fechaPago}</td>
+                                <td className={`p-2.5 font-bold font-mono whitespace-nowrap ${isAnulado ? 'line-through text-slate-400' : 'text-emerald-700'}`}>
+                                  ${p.monto.toFixed(2)}
+                                </td>
+                                <td className="p-2.5 whitespace-nowrap">
+                                  <div className="flex items-center gap-1.5">
+                                    {p.metodo === 'transferencia' && (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                        <ArrowLeftRight className="w-3 h-3" />
+                                        Transferencia
+                                      </span>
+                                    )}
+                                    {p.metodo === 'efectivo' && (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                        <Banknote className="w-3 h-3" />
+                                        Efectivo
+                                      </span>
+                                    )}
+                                    {p.metodo === 'tarjeta' && (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+                                        <CreditCard className="w-3 h-3" />
+                                        Tarjeta
+                                      </span>
+                                    )}
+                                    {p.metodo === 'deposito' && (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                        <Landmark className="w-3 h-3" />
+                                        Depósito
+                                      </span>
+                                    )}
+                                    {p.metodo !== 'transferencia' && p.metodo !== 'efectivo' && p.metodo !== 'tarjeta' && p.metodo !== 'deposito' && (
+                                      <span className="capitalize text-slate-700 text-[11px] font-medium">{p.metodo}</span>
+                                    )}
+                                  </div>
+                                  {p.bancoOrigen && <span className="text-[10px] text-slate-400 block mt-0.5">{p.bancoOrigen}</span>}
+                                </td>
+                                <td className="p-2.5 font-mono text-slate-600 whitespace-nowrap">
+                                  {p.numeroTransaccion || 'S/N'}
+                                </td>
+                                <td className="p-2.5 whitespace-nowrap">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                      isAnulado
+                                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    }`}
+                                  >
+                                    {isAnulado ? 'Anulado' : 'Registrado'}
+                                  </span>
+                                </td>
+                                <td className="p-2.5 whitespace-nowrap">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                      p.estadoConciliacion.includes('conciliado')
+                                        ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                                    }`}
+                                  >
+                                    {p.estadoConciliacion.replace('_', ' ')}
+                                  </span>
+                                </td>
+                                <td className="p-2.5 text-right whitespace-nowrap">
+                                  {onViewVoucher && (
+                                    <button
+                                      onClick={() => onViewVoucher(p)}
+                                      className="p-1 hover:bg-slate-200 rounded text-slate-500 hover:text-slate-800"
+                                      title="Ver comprobante adjunto"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+              {(() => {
+                const fin = getDebtFinancials(debtForHistory.id);
+                const isPaid = (fin?.saldoPendiente || 0) <= 0.001;
+                return (
+                  <div>
+                    {isPaid ? (
+                      <button
+                        onClick={() => {
+                          setIsHistoryModalOpen(false);
+                          setDebtForInvoice(debtForHistory);
+                          setIsInvoiceModalOpen(true);
+                        }}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Ver Factura Oficial</span>
+                      </button>
+                    ) : (
+                      canPay && (
+                        <button
+                          onClick={() => {
+                            setIsHistoryModalOpen(false);
+                            handleOpenPayModal(debtForHistory);
+                          }}
+                          className="px-3.5 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+                        >
+                          <CreditCard className="w-3.5 h-3.5" />
+                          <span>Registrar Nuevo Pago</span>
+                        </button>
+                      )
+                    )}
+                  </div>
+                );
+              })()}
+
+              <button
+                onClick={() => setIsHistoryModalOpen(false)}
+                className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-100 text-xs"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: FACTURA DOCUMENTAL DE ADQUISICIONES PAGADAS --- */}
+      {isInvoiceModalOpen && debtForInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-emerald-600" />
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900">
+                    Factura Documental de Adquisición Pagada
+                  </h2>
+                  <span className="text-[11px] text-slate-500">
+                    Comprobante de cancelación de deuda educativa
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsInvoiceModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-6 text-xs bg-slate-50/40">
+              {(() => {
+                const fin = getDebtFinancials(debtForInvoice.id);
+                const cl = clients.find((c) => c.id === debtForInvoice.clienteId);
+                const pr = products.find((p) => p.id === debtForInvoice.productoId);
+                const debtPayments = payments.filter(
+                  (p) => p.deudaId === debtForInvoice.id && p.estadoRegistro !== 'anulado'
+                );
+                const invoiceNumber = `FAC-2026-${debtForInvoice.id.replace('deb-', '')}`;
+
+                return (
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                    {/* Encabezado Institucional */}
+                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4 border-b border-slate-200 pb-5">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <Receipt className="w-6 h-6 text-sky-600" />
+                          <h1 className="text-base font-extrabold text-slate-900 tracking-tight">
+                            INSTITUTO DE CAPACITACIÓN & COBRANZAS
+                          </h1>
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          R.U.C.: 1792458901001 • Resolución Ministerial N° 458-2024
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Av. Amazonas N24-196 y Luis Cordero • Quito, Ecuador
+                        </p>
+                      </div>
+
+                      <div className="text-right sm:border-l sm:border-slate-200 sm:pl-4">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                          Documento Contable
+                        </span>
+                        <span className="text-sm font-extrabold font-mono text-slate-900 block">
+                          {invoiceNumber}
+                        </span>
+                        <span className="text-[11px] text-slate-500 block">
+                          Fecha: {debtForInvoice.fechaAdquisicion}
+                        </span>
+                        <div className="mt-1 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200 text-[10px]">
+                          <CheckCircle2 className="w-3 h-3" /> CANCELADA (PAGADA)
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Datos del Cliente / Alumno */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-semibold uppercase block">
+                          Adquiriente / Alumno:
+                        </span>
+                        <span className="font-bold text-slate-900 text-sm block">
+                          {cl ? `${cl.nombres} ${cl.apellidos}` : debtForInvoice.clienteId}
+                        </span>
+                        <span className="text-slate-500 text-[11px] font-mono">
+                          Cédula / Identificación: {cl?.cedula || 'N/A'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-semibold uppercase block">
+                          Contacto:
+                        </span>
+                        <span className="text-slate-700 text-xs block">
+                          Correo: {cl?.correo || 'Sin correo registrado'}
+                        </span>
+                        <span className="text-slate-700 text-xs block">
+                          Teléfono: {cl?.telefono || '+593 99 876 5432'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Detalle de Productos Adquiridos */}
+                    <div>
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                          <tr>
+                            <th className="p-2.5 text-left">Descripción del Programa</th>
+                            <th className="p-2.5 text-right">Precio Nominal</th>
+                            <th className="p-2.5 text-right">Beca / Ajuste</th>
+                            <th className="p-2.5 text-right">Precio Acordado</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          <tr>
+                            <td className="p-2.5 font-medium text-slate-800">
+                              {pr?.nombre || debtForInvoice.productoId}
+                              <span className="block text-[10px] text-slate-400">
+                                {pr?.descripcion || 'Programa de formación técnica'}
+                              </span>
+                            </td>
+                            <td className="p-2.5 text-right tabular-nums text-slate-400 line-through">
+                              ${debtForInvoice.precioNominalAplicado.toFixed(2)}
+                            </td>
+                            <td className="p-2.5 text-right tabular-nums text-sky-600 font-semibold">
+                              -${(debtForInvoice.precioNominalAplicado - debtForInvoice.precioAcordado).toFixed(2)}
+                            </td>
+                            <td className="p-2.5 text-right tabular-nums font-bold text-slate-900">
+                              ${debtForInvoice.precioAcordado.toFixed(2)}
+                            </td>
+                          </tr>
+                        </tbody>
+                        <tfoot className="border-t-2 border-slate-200 font-bold bg-slate-50/50">
+                          <tr>
+                            <td colSpan={3} className="p-2.5 text-right text-slate-600">
+                              Subtotal Acordado:
+                            </td>
+                            <td className="p-2.5 text-right font-mono text-slate-900">
+                              ${debtForInvoice.precioAcordado.toFixed(2)}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td colSpan={3} className="p-2.5 text-right text-slate-600">
+                              IVA Educación (0%):
+                            </td>
+                            <td className="p-2.5 text-right font-mono text-slate-500">
+                              $0.00
+                            </td>
+                          </tr>
+                          <tr className="border-t border-slate-200 text-sm">
+                            <td colSpan={3} className="p-2.5 text-right font-extrabold text-slate-900">
+                              TOTAL FACTURA CANCELADA:
+                            </td>
+                            <td className="p-2.5 text-right font-extrabold font-mono text-emerald-700">
+                              ${debtForInvoice.precioAcordado.toFixed(2)} USD
+                            </td>
+                          </tr>
+                          <tr>
+                            <td colSpan={3} className="p-2.5 text-right text-slate-600">
+                              Saldo Restante:
+                            </td>
+                            <td className="p-2.5 text-right font-extrabold font-mono text-emerald-700">
+                              $0.00
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+
+                    {/* Resumen de Amortización / Pagos Vinculados */}
+                    <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl">
+                      <span className="font-bold text-emerald-900 block mb-1">
+                        Amortización de Pagos Recibidos:
+                      </span>
+                      <div className="space-y-1 text-[11px] text-emerald-800">
+                        {debtPayments.map((p, idx) => (
+                          <div key={p.id} className="flex justify-between border-b border-emerald-100/60 pb-0.5 last:border-none">
+                            <span>
+                              Pago #{idx + 1} ({p.fechaPago}) - {p.metodo} ({p.bancoOrigen || 'Banco'}) Transacción: {p.numeroTransaccion || 'S/N'}
+                            </span>
+                            <span className="font-mono font-bold">${p.monto.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs inline-flex items-center gap-1.5 transition-colors"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Imprimir</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    alert('La factura ha sido descargada en formato PDF como comprobante oficial.');
+                  }}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-xs inline-flex items-center gap-1.5 transition-colors shadow-2xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Descargar Factura</span>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setIsInvoiceModalOpen(false)}
+                className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-100 text-xs"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: CANCELAR PAGO (DESDE EL HISTORIAL) --- */}
+      {paymentToCancel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-rose-600 text-white">
+              <div className="flex items-center gap-2">
+                <Ban className="w-5 h-5" />
+                <h2 className="text-sm font-bold">Anulación de Pago Registrado</h2>
+              </div>
+              <button
+                onClick={() => setPaymentToCancel(null)}
+                className="p-1 text-white/80 hover:text-white rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCancelPaymentSubmit} className="p-5 space-y-3.5 text-xs">
+              {cancelError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{cancelError}</span>
+                </div>
+              )}
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <div className="flex justify-between font-bold text-slate-900">
+                  <span>Pago ID: {paymentToCancel.id}</span>
+                  <span className="font-mono text-rose-700 font-bold">${paymentToCancel.monto.toFixed(2)}</span>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Transacción: {paymentToCancel.numeroTransaccion || 'S/N'} • Fecha: {paymentToCancel.fechaPago}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Motivo detallado de anulación <span className="text-rose-500">* (Obligatorio para auditoría)</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="Ej: Depósito duplicado por error operativo, comprobante no corresponde a la cuenta..."
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:bg-white focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentToCancel(null)}
+                  className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold transition-colors"
+                >
+                  Confirmar Anulación
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: MASS EXCEL IMPORT (FLUJO A) --- */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-sky-600" />
+                <h2 className="text-sm font-bold text-slate-900">
+                  Flujo A: Carga Inicial de Deudas desde Excel de Alumnos
+                </h2>
+              </div>
+              <button
+                onClick={() => setIsImportModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              <div className="flex items-center gap-3">
+                <label className="font-semibold text-slate-700">
+                  1. Elegir programa destino para la carga:
+                </label>
+                <CustomSelect
+                  options={products.map((p) => ({
+                    value: p.id,
+                    label: p.nombre,
+                    badge: `$${p.precioNominal}`,
+                  }))}
+                  value={importProductId}
+                  onChange={setImportProductId}
+                  className="w-64"
+                />
+              </div>
+
+              {!importSampleLoaded ? (
+                <div className="text-center py-8 space-y-3 border-2 border-dashed border-slate-300 rounded-2xl p-6 bg-slate-50">
+                  <div className="w-12 h-12 rounded-xl bg-sky-50 text-sky-700 mx-auto flex items-center justify-center">
+                    <FileSpreadsheet className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm">
+                      Subir archivo CSV de aspirantes y matrículas
+                    </h3>
+                    <p className="text-slate-500 mt-1 max-w-md mx-auto">
+                      Permite importar alumnos, indicando precio acordado con corrección previa antes de confirmar en PostgreSQL.
+                    </p>
+                  </div>
+                  <label className="cursor-pointer px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-semibold shadow-xs transition-colors inline-flex items-center gap-2">
+                    <Upload className="w-4 h-4" />
+                    <span>Seleccionar Archivo CSV</span>
+                    <input
+                      type="file"
+                      accept=".csv,.txt"
+                      className="hidden"
+                      onChange={handleDebtFileImport}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-900">
+                      2. Vista previa y corrección de errores antes de confirmar:
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      Detectados <strong>{importPreviewList.length}</strong> registros
+                    </span>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+                    <table className="w-full text-[11px] text-left">
+                      <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                        <tr>
+                          <th className="p-2.5">Cédula</th>
+                          <th className="p-2.5">Alumno</th>
+                          <th className="p-2.5">P. Nominal</th>
+                          <th className="p-2.5">P. Acordado (Editable)</th>
+                          <th className="p-2.5">Diagnóstico / Validación</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {importPreviewList.map((item, idx) => (
+                          <tr
+                            key={idx}
+                            className={item.hasError ? 'bg-rose-50/70 text-rose-900' : 'hover:bg-slate-50'}
+                          >
+                            <td className="p-2.5 font-mono">{item.cedula}</td>
+                            <td className="p-2.5 font-semibold">
+                              {item.nombres} {item.apellidos}
+                              {item.isExistingClient && (
+                                <span className="text-[9px] text-sky-700 bg-sky-50 px-1 py-0.2 rounded ml-1 font-normal">
+                                  Existente
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-2.5 text-slate-500 tabular-nums">
+                              ${item.precioNominal.toFixed(2)}
+                            </td>
+                            <td className="p-2.5">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={item.precioAcordado}
+                                onChange={(e) => handleFixPreviewItem(idx, parseFloat(e.target.value) || 0)}
+                                className={`w-24 px-2 py-1 rounded border font-mono font-bold ${
+                                  item.hasError
+                                    ? 'border-rose-400 bg-white text-rose-700'
+                                    : 'border-slate-300 bg-white text-slate-900'
+                                }`}
+                              />
+                            </td>
+                            <td className="p-2.5">
+                              {item.hasError ? (
+                                <span className="text-rose-600 font-semibold flex items-center gap-1">
+                                  <AlertTriangle className="w-3.5 h-3.5" /> {item.errorMsg}
+                                </span>
+                              ) : (
+                                <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Válido para crear deuda
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500">
+                    Puedes editar directamente el precio acordado en la tabla de vista previa.
+                    Al confirmar, se generarán las deudas y el evento quedará registrado en la Auditoría.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+              <button
+                onClick={() => setIsImportModalOpen(false)}
+                className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-100 text-xs"
+              >
+                Cerrar
+              </button>
+              {importSampleLoaded && (
+                <button
+                  onClick={handleConfirmBulkImport}
+                  className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-semibold text-xs transition-colors"
+                >
+                  Confirmar e Importar ({importPreviewList.length} Deudas)
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
